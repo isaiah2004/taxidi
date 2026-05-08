@@ -67,8 +67,14 @@ export function ProposeButton({
       size="sm"
       onClick={handleClick}
       disabled={disabled || submitting}
+      aria-label={
+        submitting
+          ? 'Sending proposal to owner'
+          : 'Propose changes to the owner'
+      }
+      aria-busy={submitting || undefined}
     >
-      <Send />
+      <Send aria-hidden="true" />
       {submitting ? 'Sending…' : 'Propose changes'}
     </Button>
   );

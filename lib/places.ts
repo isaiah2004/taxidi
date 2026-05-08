@@ -275,3 +275,105 @@ export async function searchPlaces(opts: {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Geocoding API v1 (legacy REST `maps.googleapis.com/maps/api/geocode/json`)
+// ---------------------------------------------------------------------------
+
+const GEOCODING_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
+
+export interface GeocodeResult {
+  placeId: string;
+  formattedAddress: string;
+  lat: number;
+  lng: number;
+}
+
+interface GeocodingV1Result {
+  place_id?: string;
+  formatted_address?: string;
+  geometry?: { location?: { lat?: number; lng?: number } };
+}
+
+interface GeocodingV1Response {
+  status?: string;
+  results?: GeocodingV1Result[];
+  error_message?: string;
+}
+
+/**
+ * Geocode a free-form address string via the legacy Google Geocoding API.
+ * Returns `null` on `ZERO_RESULTS` or any non-OK status. The PATCH-node
+ * handler uses this to backfill `lat`/`lng`/`placeId` when a user types an
+ * address without picking from the autocomplete list.
+ *
+ * Errors are logged and converted to `null` — geocoding is a best-effort
+ * enrichment and should never block the user's edit.
+ */
+export async function geocodeAddress(
+  address: string,
+): Promise<GeocodeResult | null> {
+  const trimmed = address.trim();
+  if (!trimmed) return null;
+
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) {
+    console.error('[places.geocode] GOOGLE_MAPS_API_KEY is not configured.');
+    return null;
+  }
+
+  const url = `${GEOCODING_URL}?address=${encodeURIComponent(trimmed)}&key=${encodeURIComponent(
+    apiKey,
+  )}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, { cache: 'no-store' });
+  } catch (err) {
+    console.error('[places.geocode] network error', err);
+    return null;
+  }
+
+  if (!response.ok) {
+    console.error('[places.geocode] non-OK response', {
+      status: response.status,
+    });
+    return null;
+  }
+
+  let data: GeocodingV1Response;
+  try {
+    data = (await response.json()) as GeocodingV1Response;
+  } catch (err) {
+    console.error('[places.geocode] failed to parse response', err);
+    return null;
+  }
+
+  if (data.status && data.status !== 'OK') {
+    if (data.status !== 'ZERO_RESULTS') {
+      console.error('[places.geocode] API status', {
+        status: data.status,
+        error_message: data.error_message,
+      });
+    }
+    return null;
+  }
+
+  const top = data.results?.[0];
+  if (
+    !top ||
+    !top.place_id ||
+    !top.formatted_address ||
+    typeof top.geometry?.location?.lat !== 'number' ||
+    typeof top.geometry?.location?.lng !== 'number'
+  ) {
+    return null;
+  }
+
+  return {
+    placeId: top.place_id,
+    formattedAddress: top.formatted_address,
+    lat: top.geometry.location.lat,
+    lng: top.geometry.location.lng,
+  };
+}

@@ -10,8 +10,11 @@
  * resolves to the caller's draft variant — useful for clients that don't know
  * the id yet (initial page load).
  */
-import { and, eq } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+
+import { and, eq, max, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -23,7 +26,6 @@ import { db } from '@/lib/db';
 import {
   node as nodeTable,
   variant as variantTable,
-  type NodeType,
 } from '@/db/schema';
 import { loadVariantGraph } from '@/lib/graph';
 import { safeBroadcastToVariant } from '@/lib/realtime';
@@ -32,7 +34,27 @@ import { getOrCreateVariantForUser } from '@/lib/variants';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const VALID_NODE_TYPES: ReadonlyArray<NodeType> = [
+// ---------------------------------------------------------------------------
+// Validation schemas
+// ---------------------------------------------------------------------------
+
+// Path parameters. `variantId` permits the literal `mine` for first-page loads
+// where the client doesn't yet know the variant uuid; otherwise it must be a
+// valid uuid.
+const TripBookIdSchema = z.uuid();
+const VariantIdParamSchema = z.union([
+  z.literal('mine'),
+  z.uuid(),
+]);
+
+// Length caps mirror the DB schema's varchar lengths and keep payloads small
+// enough that a single rogue request can't easily DoS us via gigabyte JSON.
+const TITLE_MAX = 200;
+const NOTES_MAX = 2000;
+const ADDRESS_MAX = 500;
+const PLACE_ID_MAX = 256;
+
+const NODE_TYPES = [
   'trip',
   'day',
   'destination',
@@ -41,40 +63,50 @@ const VALID_NODE_TYPES: ReadonlyArray<NodeType> = [
   'activity',
   'meal',
   'note',
-];
+] as const;
 
-interface CreateNodeBody {
-  type?: unknown;
-  parentOriginId?: unknown;
-  title?: unknown;
-  notes?: unknown;
-  startAt?: unknown;
-  endAt?: unknown;
-  location?: unknown;
-  typeData?: unknown;
-  sortIndex?: unknown;
-  originId?: unknown;
-}
+const LocationSchema = z
+  .object({
+    placeId: z.string().min(1).max(PLACE_ID_MAX),
+    lat: z.number().finite().min(-90).max(90),
+    lng: z.number().finite().min(-180).max(180),
+    address: z.string().min(1).max(ADDRESS_MAX),
+  })
+  .strict();
 
-interface ParsedLocation {
-  placeId: string;
-  lat: number;
-  lng: number;
-  address: string;
-}
+// IsoDateString: accept null OR a valid ISO date string. We don't bound the
+// range here since the column is `timestamp` and Postgres handles it.
+const IsoDateOrNull = z
+  .union([
+    z.iso.datetime({ offset: true }),
+    z.iso.datetime(),
+    z.null(),
+  ])
+  .nullable();
 
-interface ParsedCreateNode {
-  type: NodeType;
-  parentOriginId: string | null;
-  title: string;
-  notes: string | null;
-  startAt: Date | null;
-  endAt: Date | null;
-  location: ParsedLocation | null;
-  typeData: Record<string, unknown>;
-  sortIndex: number;
-  originId: string | undefined;
-}
+const CreateNodeSchema = z
+  .object({
+    type: z.enum(NODE_TYPES),
+    // parentOriginId is a stable string id (typically uuid). Capped to keep
+    // payloads small. Nullable so callers can explicitly attach to root.
+    parentOriginId: z.string().min(1).max(64).nullable().optional(),
+    title: z
+      .string()
+      .min(1, 'title is required')
+      .max(TITLE_MAX)
+      .transform((s) => s.trim())
+      .refine((s) => s.length > 0, { message: 'title is required' }),
+    notes: z.string().max(NOTES_MAX).nullable().optional(),
+    startAt: IsoDateOrNull.optional(),
+    endAt: IsoDateOrNull.optional(),
+    location: LocationSchema.nullable().optional(),
+    typeData: z.record(z.string(), z.unknown()).optional(),
+    sortIndex: z.number().int().finite().optional(),
+    originId: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+
+type ParsedCreateNode = z.infer<typeof CreateNodeSchema>;
 
 function authErrorResponse(err: unknown): NextResponse | null {
   if (err instanceof UnauthenticatedError) {
@@ -86,114 +118,22 @@ function authErrorResponse(err: unknown): NextResponse | null {
   return null;
 }
 
-function isValidNodeType(value: unknown): value is NodeType {
-  return (
-    typeof value === 'string' &&
-    (VALID_NODE_TYPES as ReadonlyArray<string>).includes(value)
+function badRequest(
+  details: { path: string; message: string }[],
+): NextResponse {
+  return NextResponse.json(
+    { error: 'Invalid request', details },
+    { status: 400 },
   );
 }
 
-function parseIsoDate(value: unknown, field: string): Date | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string') {
-    throw new Error(`\`${field}\` must be an ISO date string`);
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error(`\`${field}\` is not a valid ISO date`);
-  }
-  return date;
-}
-
-function parseLocation(value: unknown): ParsedLocation | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'object') {
-    throw new Error('`location` must be an object or null');
-  }
-  const loc = value as Record<string, unknown>;
-  const placeId = loc.placeId;
-  const lat = loc.lat;
-  const lng = loc.lng;
-  const address = loc.address;
-  if (
-    typeof placeId !== 'string' ||
-    typeof address !== 'string' ||
-    typeof lat !== 'number' ||
-    typeof lng !== 'number'
-  ) {
-    throw new Error(
-      '`location` requires { placeId: string, lat: number, lng: number, address: string }',
-    );
-  }
-  return { placeId, lat, lng, address };
-}
-
-function parseCreateBody(body: CreateNodeBody): ParsedCreateNode {
-  if (!isValidNodeType(body.type)) {
-    throw new Error(
-      `\`type\` is required and must be one of: ${VALID_NODE_TYPES.join(', ')}`,
-    );
-  }
-  if (typeof body.title !== 'string' || !body.title.trim()) {
-    throw new Error('`title` is required and must be a non-empty string');
-  }
-  const parentOriginId =
-    body.parentOriginId === null || body.parentOriginId === undefined
-      ? null
-      : typeof body.parentOriginId === 'string'
-      ? body.parentOriginId
-      : (() => {
-          throw new Error('`parentOriginId` must be a string or null');
-        })();
-
-  const notes =
-    body.notes === null || body.notes === undefined
-      ? null
-      : typeof body.notes === 'string'
-      ? body.notes
-      : (() => {
-          throw new Error('`notes` must be a string or null');
-        })();
-
-  const sortIndex =
-    body.sortIndex === undefined
-      ? 0
-      : typeof body.sortIndex === 'number' && Number.isFinite(body.sortIndex)
-      ? Math.trunc(body.sortIndex)
-      : (() => {
-          throw new Error('`sortIndex` must be a finite number');
-        })();
-
-  const originId =
-    body.originId === undefined
-      ? undefined
-      : typeof body.originId === 'string' && body.originId
-      ? body.originId
-      : (() => {
-          throw new Error('`originId` must be a non-empty string');
-        })();
-
-  const typeData =
-    body.typeData === undefined
-      ? {}
-      : body.typeData && typeof body.typeData === 'object'
-      ? (body.typeData as Record<string, unknown>)
-      : (() => {
-          throw new Error('`typeData` must be an object');
-        })();
-
-  return {
-    type: body.type,
-    parentOriginId,
-    title: body.title.trim(),
-    notes,
-    startAt: parseIsoDate(body.startAt, 'startAt'),
-    endAt: parseIsoDate(body.endAt, 'endAt'),
-    location: parseLocation(body.location),
-    typeData,
-    sortIndex,
-    originId,
-  };
+function zodIssues(
+  err: z.ZodError,
+): { path: string; message: string }[] {
+  return err.issues.map((i) => ({
+    path: i.path.join('.'),
+    message: i.message,
+  }));
 }
 
 /** Resolve `mine` to the caller's variant or return the literal id. */
@@ -209,15 +149,24 @@ async function resolveVariantId(
   return rawVariantId;
 }
 
+function parseDateOrNull(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string; variantId: string }> },
 ): Promise<Response> {
   const { id: tripBookId, variantId: rawVariantId } = await context.params;
 
-  if (!tripBookId || !rawVariantId) {
+  // Validate path params before any DB call.
+  const tripParse = TripBookIdSchema.safeParse(tripBookId);
+  const variantParse = VariantIdParamSchema.safeParse(rawVariantId);
+  if (!tripParse.success || !variantParse.success) {
     return NextResponse.json(
-      { error: 'Missing trip book id or variant id' },
+      { error: 'Invalid trip book id or variant id' },
       { status: 400 },
     );
   }
@@ -232,22 +181,18 @@ export async function POST(
     throw err;
   }
 
-  let body: CreateNodeBody;
+  let raw: unknown;
   try {
-    body = (await request.json()) as CreateNodeBody;
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  let parsed: ParsedCreateNode;
-  try {
-    parsed = parseCreateBody(body);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Invalid body' },
-      { status: 422 },
-    );
+  const parsed = CreateNodeSchema.safeParse(raw);
+  if (!parsed.success) {
+    return badRequest(zodIssues(parsed.error));
   }
+  const body: ParsedCreateNode = parsed.data;
 
   let variantId: string;
   try {
@@ -261,6 +206,8 @@ export async function POST(
   }
 
   // Verify the variant belongs to the trip book and is owned by the caller.
+  // This is the variant-owner gate — non-owners are denied even if they're
+  // members of the trip book.
   const [variantRow] = await db
     .select({
       id: variantTable.id,
@@ -285,14 +232,14 @@ export async function POST(
     const result = await db.transaction(async (tx) => {
       // 1. If a parent originId was provided, look up its row in this variant.
       let parentNodeId: string | null = null;
-      if (parsed.parentOriginId) {
+      if (body.parentOriginId) {
         const [parentRow] = await tx
           .select({ id: nodeTable.id })
           .from(nodeTable)
           .where(
             and(
               eq(nodeTable.variantId, variantId),
-              eq(nodeTable.originId, parsed.parentOriginId),
+              eq(nodeTable.originId, body.parentOriginId),
             ),
           )
           .limit(1);
@@ -309,21 +256,22 @@ export async function POST(
       //    generation so client-supplied origin ids stay optional.
       const insertValues = {
         variantId,
-        type: parsed.type,
+        type: body.type,
         parentNodeId,
-        sortIndex: parsed.sortIndex,
-        title: parsed.title,
-        notes: parsed.notes,
-        startAt: parsed.startAt,
-        endAt: parsed.endAt,
-        locationPlaceId: parsed.location?.placeId ?? null,
-        locationLat: parsed.location?.lat ?? null,
-        locationLng: parsed.location?.lng ?? null,
-        locationAddress: parsed.location?.address ?? null,
-        typeData: parsed.typeData,
+        sortIndex:
+          typeof body.sortIndex === 'number' ? Math.trunc(body.sortIndex) : 0,
+        title: body.title,
+        notes: body.notes ?? null,
+        startAt: parseDateOrNull(body.startAt ?? null),
+        endAt: parseDateOrNull(body.endAt ?? null),
+        locationPlaceId: body.location?.placeId ?? null,
+        locationLat: body.location?.lat ?? null,
+        locationLng: body.location?.lng ?? null,
+        locationAddress: body.location?.address ?? null,
+        typeData: body.typeData ?? {},
         // Only override originId when the caller actually supplied one;
         // otherwise let the column default apply.
-        ...(parsed.originId ? { originId: parsed.originId } : {}),
+        ...(body.originId ? { originId: body.originId } : {}),
       } as typeof nodeTable.$inferInsert;
 
       const [inserted] = await tx
@@ -341,7 +289,7 @@ export async function POST(
       variantId,
       nodeId: result.id,
       originId: result.originId,
-      parentOriginId: parsed.parentOriginId,
+      parentOriginId: body.parentOriginId ?? null,
     });
 
     return NextResponse.json(
@@ -373,9 +321,11 @@ export async function GET(
 ): Promise<Response> {
   const { id: tripBookId, variantId: rawVariantId } = await context.params;
 
-  if (!tripBookId || !rawVariantId) {
+  const tripParse = TripBookIdSchema.safeParse(tripBookId);
+  const variantParse = VariantIdParamSchema.safeParse(rawVariantId);
+  if (!tripParse.success || !variantParse.success) {
     return NextResponse.json(
-      { error: 'Missing trip book id or variant id' },
+      { error: 'Invalid trip book id or variant id' },
       { status: 400 },
     );
   }
@@ -401,7 +351,8 @@ export async function GET(
     );
   }
 
-  // Verify the variant lives under this trip-book before delegating.
+  // Verify the variant lives under this trip-book before delegating. Reading
+  // is allowed for any active member of the trip-book (collaborator preview).
   const [variantRow] = await db
     .select({ id: variantTable.id, tripBookId: variantTable.tripBookId })
     .from(variantTable)
@@ -413,8 +364,46 @@ export async function GET(
   }
 
   try {
+    // Compute a cheap ETag from the max(updated_at) over the variant's live
+    // node rows plus the row count, so deletes also bump the tag. This is
+    // strictly an optimisation: the response body is still computed and sent
+    // (we don't currently shortcut on If-None-Match), but the headers let
+    // the browser skip re-rendering identical payloads on rapid tab switches.
+    const [aggregate] = await db
+      .select({
+        maxUpdatedAt: max(nodeTable.updatedAt),
+        count: sql<number>`count(*)::int`,
+      })
+      .from(nodeTable)
+      .where(
+        and(
+          eq(nodeTable.variantId, variantId),
+          eq(nodeTable.deleted, false),
+        ),
+      );
+
+    const maxUpdated =
+      aggregate?.maxUpdatedAt instanceof Date
+        ? aggregate.maxUpdatedAt.toISOString()
+        : aggregate?.maxUpdatedAt
+          ? String(aggregate.maxUpdatedAt)
+          : '0';
+    const count = Number(aggregate?.count ?? 0);
+    const etag = `W/"${createHash('sha1')
+      .update(`${variantId}:${maxUpdated}:${count}`)
+      .digest('hex')
+      .slice(0, 16)}"`;
+
     const graph = await loadVariantGraph(variantId);
-    return NextResponse.json(graph);
+    return NextResponse.json(graph, {
+      headers: {
+        // Always re-validate; this prevents a rapid back/forward navigation
+        // from showing a stale graph but still lets the browser short-circuit
+        // identical payloads on tab focus when paired with our ETag.
+        'Cache-Control': 'private, max-age=0, must-revalidate',
+        ETag: etag,
+      },
+    });
   } catch (err) {
     console.error('[GET /api/trips/.../nodes] load failed:', err);
     return NextResponse.json(

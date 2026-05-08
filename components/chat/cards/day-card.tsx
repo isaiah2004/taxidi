@@ -56,7 +56,11 @@ export function DayCard({
   if (hidden) return null;
   if (part.state === 'output-error') {
     return (
-      <Card size="sm" className="max-w-md border-destructive/40">
+      <Card
+        size="sm"
+        className="max-w-md border-destructive/40"
+        role="alert"
+      >
         <CardHeader>
           <CardTitle className="text-destructive">Day card failed</CardTitle>
         </CardHeader>
@@ -107,10 +111,16 @@ export function DayCard({
   }
 
   return (
-    <Card size="sm" className="max-w-md" data-card-type="day">
+    <Card
+      size="sm"
+      className="max-w-md"
+      data-card-type="day"
+      role="group"
+      aria-label="Proposed day"
+    >
       <CardHeader className="pb-2">
         <div className="flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground">
-          <CalendarIcon className="size-3" /> Day
+          <CalendarIcon className="size-3" aria-hidden="true" /> Day
         </div>
         <CardTitle>
           <StreamingText
@@ -132,8 +142,12 @@ export function DayCard({
       </CardContent>
       <CardFooter className="justify-end gap-1.5">
         {accepted ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-            <CheckIcon className="size-3.5" /> Added
+          <span
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary"
+            role="status"
+            aria-live="polite"
+          >
+            <CheckIcon className="size-3.5" aria-hidden="true" /> Added
           </span>
         ) : (
           <>
@@ -142,15 +156,17 @@ export function DayCard({
               size="sm"
               onClick={() => setHidden(true)}
               disabled={!isEditable || submitting}
+              aria-label="Reject day suggestion"
             >
-              <XIcon /> Reject
+              <XIcon aria-hidden="true" /> Reject
             </Button>
             <Button
               size="sm"
               onClick={handleAccept}
               disabled={!isEditable || submitting}
+              aria-label="Accept and add day"
             >
-              <CheckIcon /> Accept
+              <CheckIcon aria-hidden="true" /> Accept
             </Button>
           </>
         )}

@@ -1,0 +1,31 @@
+# Files to exclude when uploading source to Cloud Build.
+# (Cloud Build still runs the Dockerfile, which has its own ignore.)
+
+node_modules
+.pnpm-store
+.next
+out
+.git
+.gitignore
+.vscode
+.idea
+
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+coverage
+tsconfig.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.DS_Store
+Thumbs.db

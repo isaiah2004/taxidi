@@ -14,6 +14,7 @@
 import { google } from '@ai-sdk/google';
 import { convertToModelMessages, streamText, type UIMessage } from 'ai';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -36,10 +37,15 @@ const MENTION_REGEX = /(^|[^A-Za-z0-9_])@taxidi\b/i;
 // Fast model for the no-mention path: cheap and snappy for short replies.
 const FAST_MODEL_ID = 'gemini-2.5-flash';
 
-interface ChatRequestBody {
-  messages?: UIMessage[];
-  tripBookId?: string;
-}
+// Schema for the chat body. We validate the outer shape (messages array,
+// tripBookId uuid) but accept the AI SDK's `UIMessage` shape as opaque since
+// it ships its own runtime types and a strict schema here would drift.
+const ChatBodySchema = z
+  .object({
+    messages: z.array(z.unknown()).max(500),
+    tripBookId: z.uuid(),
+  })
+  .strict();
 
 function authErrorResponse(err: unknown): Response | null {
   if (err instanceof UnauthenticatedError) {
@@ -68,24 +74,28 @@ function extractText(message: UIMessage | undefined): string {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  let body: ChatRequestBody;
+  let raw: unknown;
   try {
-    body = (await req.json()) as ChatRequestBody;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const messages = Array.isArray(body.messages) ? body.messages : null;
-  const tripBookId =
-    typeof body.tripBookId === 'string' && body.tripBookId
-      ? body.tripBookId
-      : null;
-  if (!messages || !tripBookId) {
+  const parsed = ChatBodySchema.safeParse(raw);
+  if (!parsed.success) {
+    const details = parsed.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+    }));
     return NextResponse.json(
-      { error: '`messages` and `tripBookId` are required' },
+      { error: 'Invalid request', details },
       { status: 400 },
     );
   }
+  // We trust the AI SDK to validate the message-part shapes when it converts
+  // to model messages — we just need the array shape here.
+  const messages = parsed.data.messages as UIMessage[];
+  const tripBookId = parsed.data.tripBookId;
 
   let userId: string;
   try {

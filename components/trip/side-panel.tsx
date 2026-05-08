@@ -16,7 +16,7 @@
  * sonner toasts; on success we close the panel.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -146,15 +146,47 @@ export function SidePanel({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const titleId = useId();
+  const descId = useId();
+  const titleErrorId = useId();
+  const firstInputRef = useRef<HTMLInputElement | null>(null);
+  const titleInvalid =
+    target?.kind === 'vertex' &&
+    form.kind === 'vertex' &&
+    form.title.trim().length === 0;
+
   // Re-seed when the selected element changes.
   useEffect(() => {
     setForm(initial);
   }, [initial]);
 
+  // Move focus to the first input when the panel opens for keyboard users.
+  useEffect(() => {
+    if (open && firstInputRef.current) {
+      // Defer until after Radix has mounted the content / animations have begun.
+      const timer = setTimeout(() => {
+        firstInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [open, target]);
+
   if (!target) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent />
+        <SheetContent
+          aria-labelledby={titleId}
+          aria-describedby={descId}
+        >
+          <SheetHeader>
+            <SheetTitle id={titleId} className="sr-only">
+              No selection
+            </SheetTitle>
+            <SheetDescription id={descId} className="sr-only">
+              Select an item to edit.
+            </SheetDescription>
+          </SheetHeader>
+        </SheetContent>
       </Sheet>
     );
   }
@@ -168,13 +200,18 @@ export function SidePanel({
 
   async function handleSave() {
     if (readOnly) return;
+    if (form.kind === 'vertex' && form.title.trim().length === 0) {
+      toast.error('Title is required');
+      firstInputRef.current?.focus();
+      return;
+    }
     setSaving(true);
     try {
       const patch: Record<string, unknown> = {
         notes: form.notes || null,
       };
       if (form.kind === 'vertex') {
-        patch.title = form.title;
+        patch.title = form.title.trim();
         patch.startAt = fromLocalInputValue(form.startAt);
         patch.endAt = fromLocalInputValue(form.endAt);
       } else {
@@ -236,10 +273,14 @@ export function SidePanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md">
+      <SheetContent
+        className="w-full sm:max-w-md"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+      >
         <SheetHeader>
-          <SheetTitle>{titleLabel}</SheetTitle>
-          <SheetDescription>
+          <SheetTitle id={titleId}>{titleLabel}</SheetTitle>
+          <SheetDescription id={descId}>
             {target.kind === 'vertex'
               ? 'Update the title, timing, or notes.'
               : 'Update transport mode, schedule, and booking info.'}
@@ -252,12 +293,25 @@ export function SidePanel({
               <Label htmlFor="panel-title">Title</Label>
               <Input
                 id="panel-title"
+                ref={firstInputRef}
                 value={form.title}
                 onChange={(e) =>
                   setForm((s) => ({ ...s, title: e.target.value }))
                 }
                 disabled={readOnly}
+                aria-required="true"
+                aria-invalid={titleInvalid || undefined}
+                aria-describedby={titleInvalid ? titleErrorId : undefined}
               />
+              {titleInvalid && (
+                <p
+                  id={titleErrorId}
+                  role="alert"
+                  className="text-xs text-destructive"
+                >
+                  Title is required.
+                </p>
+              )}
             </div>
           )}
 
@@ -268,6 +322,7 @@ export function SidePanel({
               </Label>
               <Input
                 id="panel-start"
+                ref={target.kind === 'edge' ? firstInputRef : undefined}
                 type="datetime-local"
                 value={form.startAt}
                 onChange={(e) =>
@@ -294,8 +349,11 @@ export function SidePanel({
 
           {target.kind === 'vertex' && address && (
             <div className="flex flex-col gap-1.5">
-              <Label>Address</Label>
-              <p className="rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-sm text-muted-foreground">
+              <Label id="panel-address-label">Address</Label>
+              <p
+                aria-labelledby="panel-address-label"
+                className="rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-sm text-muted-foreground"
+              >
                 {address}
               </p>
             </div>
@@ -304,7 +362,7 @@ export function SidePanel({
           {target.kind === 'edge' && form.kind === 'edge' && (
             <>
               <div className="flex flex-col gap-1.5">
-                <Label>Mode</Label>
+                <Label id="panel-mode-label">Mode</Label>
                 <Select
                   value={form.mode || undefined}
                   onValueChange={(v) =>
@@ -316,7 +374,10 @@ export function SidePanel({
                   }
                   disabled={readOnly}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger
+                    className="w-full"
+                    aria-labelledby="panel-mode-label"
+                  >
                     <SelectValue placeholder="Select a mode" />
                   </SelectTrigger>
                   <SelectContent>

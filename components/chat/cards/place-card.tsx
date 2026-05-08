@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { CheckIcon, MapPinIcon, PencilIcon, XIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -72,10 +72,18 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
   const [notes, setNotes] = useState(data.suggestedNotes ?? '');
   const [address, setAddress] = useState(data.address ?? '');
 
+  const titleId = useId();
+  const titleErrorId = useId();
+  const titleInvalid = editing && title.trim().length === 0;
+
   if (hidden) return null;
   if (part.state === 'output-error') {
     return (
-      <Card size="sm" className="max-w-md border-destructive/40">
+      <Card
+        size="sm"
+        className="max-w-md border-destructive/40"
+        role="alert"
+      >
         <CardHeader>
           <CardTitle className="text-destructive">Place card failed</CardTitle>
         </CardHeader>
@@ -85,9 +93,13 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
   }
 
   async function handleAccept() {
+    const useTitle = editing ? title.trim() : (data.suggestedTitle ?? '').trim();
+    if (!useTitle) {
+      toast.error('Title is required');
+      return;
+    }
     setSubmitting(true);
     try {
-      const useTitle = editing ? title : data.suggestedTitle ?? '';
       const useNotes = editing ? notes : data.suggestedNotes;
       const useAddress = editing ? address : data.address;
 
@@ -136,18 +148,42 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
   }
 
   return (
-    <Card size="sm" className="max-w-md" data-card-type="place">
+    <Card
+      size="sm"
+      className="max-w-md"
+      data-card-type="place"
+      role="group"
+      aria-label="Proposed place"
+    >
       <CardHeader className="pb-2">
         <div className="flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground">
-          <MapPinIcon className="size-3" /> Place
+          <MapPinIcon className="size-3" aria-hidden="true" /> Place
         </div>
         <CardTitle>
           {editing ? (
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="h-7 text-base"
-            />
+            <>
+              <Label htmlFor={titleId} className="sr-only">
+                Title
+              </Label>
+              <Input
+                id={titleId}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="h-7 text-base"
+                aria-invalid={titleInvalid || undefined}
+                aria-describedby={titleInvalid ? titleErrorId : undefined}
+                aria-required="true"
+              />
+              {titleInvalid && (
+                <p
+                  id={titleErrorId}
+                  role="alert"
+                  className="mt-1 text-xs text-destructive"
+                >
+                  Title is required.
+                </p>
+              )}
+            </>
           ) : (
             <StreamingText value={data.suggestedTitle} fallback="…" />
           )}
@@ -156,7 +192,13 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
       <CardContent className="flex flex-col gap-2">
         {editing ? (
           <Field label="Notes">
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            {(id) => (
+              <Input
+                id={id}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            )}
           </Field>
         ) : data.suggestedNotes || part.state === 'input-streaming' ? (
           <p className="text-muted-foreground">
@@ -166,7 +208,13 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
 
         {editing ? (
           <Field label="Address">
-            <Input value={address} onChange={(e) => setAddress(e.target.value)} />
+            {(id) => (
+              <Input
+                id={id}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
+            )}
           </Field>
         ) : data.address ? (
           <p className="text-xs text-muted-foreground">{data.address}</p>
@@ -176,8 +224,12 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
       </CardContent>
       <CardFooter className="justify-end gap-1.5">
         {accepted ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-            <CheckIcon className="size-3.5" /> Added
+          <span
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary"
+            role="status"
+            aria-live="polite"
+          >
+            <CheckIcon className="size-3.5" aria-hidden="true" /> Added
           </span>
         ) : (
           <>
@@ -186,24 +238,27 @@ export function PlaceCard({ part, tripBookId, variantId }: PlaceCardProps) {
               size="sm"
               onClick={() => setHidden(true)}
               disabled={!isEditable || submitting}
-              aria-label="Reject"
+              aria-label="Reject place suggestion"
             >
-              <XIcon /> Reject
+              <XIcon aria-hidden="true" /> Reject
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setEditing((v) => !v)}
               disabled={!isEditable || submitting}
+              aria-label={editing ? 'Finish editing place' : 'Edit place'}
+              aria-pressed={editing}
             >
-              <PencilIcon /> {editing ? 'Done' : 'Edit'}
+              <PencilIcon aria-hidden="true" /> {editing ? 'Done' : 'Edit'}
             </Button>
             <Button
               size="sm"
               onClick={handleAccept}
               disabled={!isEditable || submitting}
+              aria-label="Accept and add place"
             >
-              <CheckIcon /> Accept
+              <CheckIcon aria-hidden="true" /> Accept
             </Button>
           </>
         )}
@@ -217,12 +272,15 @@ function Field({
   children,
 }: {
   label: string;
-  children: React.ReactNode;
+  children: (id: string) => React.ReactNode;
 }) {
+  const id = useId();
   return (
     <div className="flex flex-col gap-1">
-      <Label className="text-xs">{label}</Label>
-      {children}
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      {children(id)}
     </div>
   );
 }

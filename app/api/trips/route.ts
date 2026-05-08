@@ -14,6 +14,7 @@
  */
 import { and, desc, eq, exists, inArray } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -32,9 +33,17 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-interface CreateTripBody {
-  name?: unknown;
-}
+// Body schema for POST. Length-capped to keep DB columns bounded and to make
+// trivial DoS via giant payloads unprofitable. Trim happens implicitly via
+// `min(1)` after the optional `transform`.
+const CreateTripSchema = z.object({
+  name: z
+    .string()
+    .min(1, 'name is required')
+    .max(200, 'name must be 200 characters or fewer')
+    .transform((s) => s.trim())
+    .refine((s) => s.length > 0, { message: 'name is required' }),
+});
 
 interface CreateTripResponse {
   id: string;
@@ -78,26 +87,26 @@ export async function POST(request: Request): Promise<Response> {
     throw err;
   }
 
-  let body: CreateTripBody;
+  let raw: unknown;
   try {
-    body = (await request.json()) as CreateTripBody;
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const name = typeof body.name === 'string' ? body.name.trim() : '';
-  if (!name) {
+  const parsed = CreateTripSchema.safeParse(raw);
+  if (!parsed.success) {
+    // Strip zod's internal tree to surface field names + messages only.
+    const details = parsed.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+    }));
     return NextResponse.json(
-      { error: 'A non-empty `name` is required' },
-      { status: 422 },
+      { error: 'Invalid request', details },
+      { status: 400 },
     );
   }
-  if (name.length > 200) {
-    return NextResponse.json(
-      { error: '`name` must be 200 characters or fewer' },
-      { status: 422 },
-    );
-  }
+  const { name } = parsed.data;
 
   try {
     const created = await db.transaction(async (tx) => {

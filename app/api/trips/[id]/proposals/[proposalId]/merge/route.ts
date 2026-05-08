@@ -17,6 +17,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -38,9 +39,16 @@ export const runtime = 'nodejs';
 // short on slow Gemini responses.
 export const maxDuration = 120;
 
-interface MergeRequestBody {
-  instructions?: unknown;
-}
+const TripBookIdSchema = z.uuid();
+const ProposalIdSchema = z.uuid();
+
+// Cap free-text instructions so a malicious caller can't DoS the merge agent
+// (or pad the prompt indefinitely).
+const MergeBodySchema = z
+  .object({
+    instructions: z.string().max(2000).optional(),
+  })
+  .strict();
 
 function authErrorResponse(err: unknown): NextResponse | null {
   if (err instanceof UnauthenticatedError) {
@@ -73,9 +81,12 @@ export async function POST(
 ): Promise<Response> {
   const { id: tripBookId, proposalId } = await context.params;
 
-  if (!tripBookId || !proposalId) {
+  if (
+    !TripBookIdSchema.safeParse(tripBookId).success ||
+    !ProposalIdSchema.safeParse(proposalId).success
+  ) {
     return NextResponse.json(
-      { error: 'Missing trip book id or proposal id' },
+      { error: 'Invalid trip book id or proposal id' },
       { status: 400 },
     );
   }
@@ -98,15 +109,25 @@ export async function POST(
     );
   }
 
-  let body: MergeRequestBody;
+  let raw: unknown;
   try {
-    body = (await request.json()) as MergeRequestBody;
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const instructions =
-    typeof body.instructions === 'string' ? body.instructions : '';
+  const parsedBody = MergeBodySchema.safeParse(raw);
+  if (!parsedBody.success) {
+    const details = parsedBody.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+    }));
+    return NextResponse.json(
+      { error: 'Invalid request', details },
+      { status: 400 },
+    );
+  }
+  const instructions = parsedBody.data.instructions ?? '';
 
   // Load the proposal and verify it's still pending.
   const [proposal] = await db

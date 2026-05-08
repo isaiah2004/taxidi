@@ -10,6 +10,7 @@
  */
 import { and, asc, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -28,6 +29,9 @@ import { getOrCreateVariantForUser } from '@/lib/variants';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+const TripBookIdSchema = z.uuid();
+const VariantIdParamSchema = z.union([z.literal('mine'), z.uuid()]);
 
 interface SerializedLocation {
   placeId: string;
@@ -82,9 +86,12 @@ export async function POST(
 ): Promise<Response> {
   const { id: tripBookId, variantId: rawVariantId } = await context.params;
 
-  if (!tripBookId || !rawVariantId) {
+  if (
+    !TripBookIdSchema.safeParse(tripBookId).success ||
+    !VariantIdParamSchema.safeParse(rawVariantId).success
+  ) {
     return NextResponse.json(
-      { error: 'Missing trip book id or variant id' },
+      { error: 'Invalid trip book id or variant id' },
       { status: 400 },
     );
   }

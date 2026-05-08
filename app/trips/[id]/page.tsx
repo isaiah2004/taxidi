@@ -22,6 +22,7 @@ import { SiteHeader } from '@/components/site-header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { TripChat } from '@/components/chat/trip-chat';
 import { TripView } from '@/components/trip/trip-view';
+import { SkipLink } from './skip-link';
 import {
   ForbiddenError,
   UnauthenticatedError,
@@ -183,39 +184,51 @@ export default async function TripPage({ params }: TripPageProps) {
   const myVariantId = myVariant.id;
 
   return (
-    <SidebarProvider
-      style={
-        {
-          '--sidebar-width': '19rem',
-          '--header-height': '60px',
-        } as React.CSSProperties
-      }
-    >
-      <AppSidebar
-        myTrips={sidebar.myTrips}
-        sharedTrips={sidebar.sharedTrips}
-        proposals={sidebar.proposals}
-        currentTripId={tripRow.id}
-      />
-      <SidebarInset>
-        <SiteHeader currentTripTitle={tripRow.name} />
-        <div className="flex flex-1 overflow-hidden">
-          <main className="flex-1 bg-muted/20">
-            <TripView
-              tripBookId={tripRow.id}
-              variantId={myVariantId}
-              isOwner={callerIsOwner}
-            />
-          </main>
-          <aside className="w-96 border-l bg-background flex flex-col">
-            <TripChat
-              tripBookId={tripRow.id}
-              variantId={myVariantId}
-              userId={userId}
-            />
-          </aside>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+    <>
+      <SkipLink />
+      <SidebarProvider
+        style={
+          {
+            '--sidebar-width': '19rem',
+            '--header-height': '60px',
+          } as React.CSSProperties
+        }
+      >
+        <AppSidebar
+          myTrips={sidebar.myTrips}
+          sharedTrips={sidebar.sharedTrips}
+          proposals={sidebar.proposals}
+          currentTripId={tripRow.id}
+        />
+        <SidebarInset>
+          <SiteHeader currentTripTitle={tripRow.name} />
+          <div className="flex flex-1 overflow-hidden">
+            <main
+              id="main"
+              tabIndex={-1}
+              aria-label={`Trip: ${tripRow.name}`}
+              className="flex-1 bg-muted/20 focus:outline-none"
+            >
+              <h1 className="sr-only">{tripRow.name}</h1>
+              <TripView
+                tripBookId={tripRow.id}
+                variantId={myVariantId}
+                isOwner={callerIsOwner}
+              />
+            </main>
+            <aside
+              aria-label="Trip chat"
+              className="w-96 border-l bg-background flex flex-col"
+            >
+              <TripChat
+                tripBookId={tripRow.id}
+                variantId={myVariantId}
+                userId={userId}
+              />
+            </aside>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </>
   );
 }

@@ -66,10 +66,15 @@ export function VariantSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={isPending}>
-          <Users className="text-muted-foreground" />
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isPending}
+          aria-label={`Switch variant — current: ${active?.label ?? 'none'}`}
+        >
+          <Users className="text-muted-foreground" aria-hidden="true" />
           <span className="font-medium">{active?.label ?? 'Select variant'}</span>
-          <ChevronDown className="text-muted-foreground" />
+          <ChevronDown className="text-muted-foreground" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[220px]">
@@ -82,12 +87,19 @@ export function VariantSwitcher({
               key={opt.id}
               onSelect={() => select(opt.id)}
               className="flex items-start gap-2"
+              aria-current={isActive ? 'true' : undefined}
             >
-              <span className="mt-0.5 inline-flex w-4 justify-center">
+              <span
+                className="mt-0.5 inline-flex w-4 justify-center"
+                aria-hidden="true"
+              >
                 {isActive ? <Check /> : null}
               </span>
               <span className="flex flex-1 flex-col">
-                <span className="font-medium">{opt.label}</span>
+                <span className="font-medium">
+                  {opt.label}
+                  {isActive && <span className="sr-only"> (selected)</span>}
+                </span>
                 {opt.hint && (
                   <span className="text-xs text-muted-foreground">
                     {opt.hint}

@@ -32,7 +32,11 @@ export interface UseGraphStateResult {
   error: Error | null;
 }
 
-const REFETCH_DEBOUNCE_MS = 150;
+// Trailing debounce window for Pusher-triggered refetches. A flurry of N
+// node.* events that land inside this window coalesces into a single
+// refetch — important when, e.g., the planner lands 5 nodes in quick
+// succession during a single agent turn.
+const REFETCH_DEBOUNCE_MS = 200;
 
 const NODE_EVENT_KINDS = new Set<RealtimeEvent['kind']>([
   'node.add',

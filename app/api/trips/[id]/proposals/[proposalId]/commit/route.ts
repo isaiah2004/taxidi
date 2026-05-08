@@ -21,6 +21,7 @@
  */
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -37,10 +38,19 @@ import { isOwner } from '@/lib/variants';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-interface CommitRequestBody {
-  snapshot?: unknown;
-  message?: unknown;
-}
+const TripBookIdSchema = z.uuid();
+const ProposalIdSchema = z.uuid();
+
+// `snapshot` is opaque JSON we trust to whatever the owner reviewed in the
+// preview. We sanity-check the outer shape (`{ nodes: [] }`) below; the inner
+// shape is enforced by the merge agent that produced it. The commit message
+// is bounded so we don't store unbounded user input verbatim.
+const CommitBodySchema = z
+  .object({
+    snapshot: z.object({ nodes: z.array(z.unknown()) }).passthrough(),
+    message: z.string().max(500).optional(),
+  })
+  .strict();
 
 function authErrorResponse(err: unknown): NextResponse | null {
   if (err instanceof UnauthenticatedError) {
@@ -52,13 +62,6 @@ function authErrorResponse(err: unknown): NextResponse | null {
   return null;
 }
 
-function isSerializedSnapshot(value: unknown): value is SerializedSnapshot {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    Array.isArray((value as { nodes?: unknown }).nodes)
-  );
-}
 
 /**
  * Postgres unique-violation error code. We use it to translate concurrent
@@ -79,9 +82,12 @@ export async function POST(
 ): Promise<Response> {
   const { id: tripBookId, proposalId } = await context.params;
 
-  if (!tripBookId || !proposalId) {
+  if (
+    !TripBookIdSchema.safeParse(tripBookId).success ||
+    !ProposalIdSchema.safeParse(proposalId).success
+  ) {
     return NextResponse.json(
-      { error: 'Missing trip book id or proposal id' },
+      { error: 'Invalid trip book id or proposal id' },
       { status: 400 },
     );
   }
@@ -103,23 +109,31 @@ export async function POST(
     );
   }
 
-  let body: CommitRequestBody;
+  let raw: unknown;
   try {
-    body = (await request.json()) as CommitRequestBody;
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  if (!isSerializedSnapshot(body.snapshot)) {
+  const parsedBody = CommitBodySchema.safeParse(raw);
+  if (!parsedBody.success) {
+    const details = parsedBody.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+    }));
     return NextResponse.json(
-      { error: '`snapshot` is required and must be { nodes: [...] }' },
-      { status: 422 },
+      { error: 'Invalid request', details },
+      { status: 400 },
     );
   }
-  const snapshot = body.snapshot;
+  // The outer shape is validated; the snapshot's inner shape is whatever the
+  // owner approved in the preview. `as` cast is safe because the agent and
+  // diff layers expect the documented `SerializedSnapshot`.
+  const snapshot = parsedBody.data.snapshot as SerializedSnapshot;
   const message =
-    typeof body.message === 'string' && body.message.length > 0
-      ? body.message
+    parsedBody.data.message && parsedBody.data.message.length > 0
+      ? parsedBody.data.message
       : null;
 
   // Up-front status check so we can short-circuit obviously bad calls without

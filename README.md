@@ -2,6 +2,21 @@
 
 Taxidi is an AI-powered collaborative trip-planning application designed for groups of friends and families who want to plan incredible trips on a budget. By leveraging advanced agentic AI, Taxidi takes the stress out of group coordination and itinerary building.
 
+## 🌐 Google Services
+
+Taxidi integrates deeply with the Google ecosystem across product, AI, and infrastructure layers:
+
+- **Gemini 2.5 Flash** via `@ai-sdk/google` powers the planner agent, with **Google Search grounding** registered as `google.tools.googleSearch({})` in `lib/agents/planner.ts` so answers cite live sources.
+- **Google Places API (New) v1 — Text Search** in `lib/places.ts` (`resolvePlace`, `searchPlaces`) backs the agent's `search_places` tool and the place picker UI.
+- **Google Geocoding API** in `lib/places.ts` (`geocodeAddress`) backfills `placeId` / `lat` / `lng` whenever a user edits a node with just a free-form address.
+- **Google Routes API v2** in `lib/routes.ts` (`estimateRoute`) computes duration, distance, and an encoded polyline for every proposed transport leg (DRIVE / WALK / TRANSIT, with a great-circle fallback for flights).
+- **Google Maps JavaScript API** via `@react-google-maps/api` in `components/trip/map-tab.tsx` renders the trip on a real map; the `geometry` library decodes Routes polylines into on-the-ground paths.
+- **Google Sign-In** is exposed through Clerk's identity providers — users can authenticate with their Google account out of the box.
+- **Google Cloud Run** hosts the containerized Next.js app (built by `Dockerfile`).
+- **Google Cloud SQL for Postgres** is the primary datastore for trip books, variants, nodes, and chat history.
+- **Google Cloud Build + Artifact Registry** form the CI / CD pipeline (`cloudbuild.yaml`).
+- **Google Secret Manager** stores production secrets (DB URLs, Clerk keys, the shared `GOOGLE_MAPS_API_KEY`) and is mounted into Cloud Run at deploy time.
+
 ## 🎯 Chosen Vertical
 **Collaborative Agentic Trip Planning**
 We target budget-conscious travelers—specifically groups of friends and families. Coordinating group travel is notoriously difficult, especially when balancing different budgets, schedules, and preferences. Taxidi acts as your group's personal travel agent, facilitating collaboration and using intelligent tools to find the best activities, routes, and budget-friendly options.

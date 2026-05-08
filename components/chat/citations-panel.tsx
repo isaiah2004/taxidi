@@ -29,24 +29,36 @@ export function CitationsPanel({
       <summary className="cursor-pointer select-none font-medium text-muted-foreground">
         {label} ({citations.length})
       </summary>
-      <ul className="mt-2 flex flex-col gap-1.5 pl-1">
-        {citations.map((c, i) => (
-          <li key={`${c.url}-${i}`} className="leading-snug">
-            <a
-              href={c.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-            >
-              {c.title ?? new URL(c.url).hostname}
-              <ExternalLinkIcon className="size-3" />
-            </a>
-            {c.snippet ? (
-              <span className="block text-muted-foreground">{c.snippet}</span>
-            ) : null}
-          </li>
-        ))}
+      <ul className="mt-2 flex flex-col gap-1.5 pl-1" aria-label={label}>
+        {citations.map((c, i) => {
+          const linkLabel = c.title ?? safeHostname(c.url);
+          return (
+            <li key={`${c.url}-${i}`} className="leading-snug">
+              <a
+                href={c.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                aria-label={`${linkLabel} (opens in new tab)`}
+              >
+                {linkLabel}
+                <ExternalLinkIcon className="size-3" aria-hidden="true" />
+              </a>
+              {c.snippet ? (
+                <span className="block text-muted-foreground">{c.snippet}</span>
+              ) : null}
+            </li>
+          );
+        })}
       </ul>
     </details>
   );
+}
+
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }

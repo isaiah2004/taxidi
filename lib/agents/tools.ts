@@ -23,9 +23,13 @@
  * shape (`{ results: [...] }`) is stable so the upgrade is transparent.
  */
 import { tool, type Tool, type ToolSet } from 'ai';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { resolvePlace } from '@/lib/places';
+import { node as nodeTable } from '@/db/schema';
+import { db } from '@/lib/db';
+import { resolvePlace, searchPlaces } from '@/lib/places';
+import { estimateRoute } from '@/lib/routes';
 import { makeIdempotencyKey, recordStep } from './persist';
 
 // ---------------------------------------------------------------------------
@@ -171,38 +175,29 @@ export function buildPlannerTools(ctx: PlannerToolContext): ToolSet {
     inputSchema: searchPlacesInput,
     execute: async (input) =>
       withStep(ctx, next, 'search_places', input, async () => {
-        // searchPlaces (multi-result) is owned by Agent 1 and may not be
-        // present yet. Fall back to resolvePlace's single best match so the
-        // agent can keep moving — the public output shape stays the same.
+        // Primary path: multi-result Places Text Search. Falls back to
+        // resolvePlace if the multi-result call throws so the agent can keep
+        // moving on transient errors.
         try {
-          const lib = await import('@/lib/places');
-          const maybeFn = (lib as unknown as Record<string, unknown>)
-            .searchPlaces;
-          if (typeof maybeFn === 'function') {
-            const fn = maybeFn as (
-              args: typeof input,
-            ) => Promise<{ results: unknown[] }>;
-            const result = await fn(input);
-            return result;
-          }
-        } catch {
-          // fall through to fallback
+          const results = await searchPlaces(input);
+          return { results };
+        } catch (err) {
+          console.error('[planner.tools] search_places failed, falling back', err);
+          const place = await resolvePlace(input.query);
+          return {
+            results: place
+              ? [
+                  {
+                    placeId: place.placeId,
+                    name: place.name,
+                    address: place.address,
+                    lat: place.lat,
+                    lng: place.lng,
+                  },
+                ]
+              : [],
+          };
         }
-
-        const place = await resolvePlace(input.query);
-        return {
-          results: place
-            ? [
-                {
-                  placeId: place.placeId,
-                  name: place.name,
-                  address: place.address,
-                  lat: place.lat,
-                  lng: place.lng,
-                },
-              ]
-            : [],
-        };
       }),
   });
 
@@ -332,7 +327,55 @@ export function buildPlannerTools(ctx: PlannerToolContext): ToolSet {
       'Propose a Transport leg between two committed places. Both endpoints must already exist (origin ids).',
     inputSchema: transportCardInput,
     execute: async (input) =>
-      withStep(ctx, next, 'propose_transport_node', input, async () => input),
+      withStep(ctx, next, 'propose_transport_node', input, async () => {
+        // Best-effort enrichment: look up the from/to vertices in the user's
+        // variant, and if both have lat/lng, ask the Routes API for a duration
+        // + distance + polyline. Any failure here just returns the input
+        // unchanged — we never want a Routes hiccup to break the proposal.
+        try {
+          const rows = await db
+            .select({
+              originId: nodeTable.originId,
+              lat: nodeTable.locationLat,
+              lng: nodeTable.locationLng,
+            })
+            .from(nodeTable)
+            .where(eq(nodeTable.variantId, ctx.variantId));
+
+          const byOrigin = new Map(rows.map((r) => [r.originId, r]));
+          const fromRow = byOrigin.get(input.fromOriginId);
+          const toRow = byOrigin.get(input.toOriginId);
+
+          if (
+            fromRow &&
+            toRow &&
+            typeof fromRow.lat === 'number' &&
+            typeof fromRow.lng === 'number' &&
+            typeof toRow.lat === 'number' &&
+            typeof toRow.lng === 'number'
+          ) {
+            const estimate = await estimateRoute({
+              from: { lat: fromRow.lat, lng: fromRow.lng },
+              to: { lat: toRow.lat, lng: toRow.lng },
+              mode: input.mode,
+            });
+            if (estimate) {
+              return {
+                ...input,
+                durationSeconds: estimate.durationSeconds,
+                distanceMeters: estimate.distanceMeters,
+                encodedPolyline: estimate.encodedPolyline,
+              };
+            }
+          }
+        } catch (err) {
+          console.error(
+            '[planner.tools] propose_transport_node enrichment failed',
+            err,
+          );
+        }
+        return input;
+      }),
   });
 
   // -------------------------------------------------------------------------

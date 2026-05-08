@@ -21,14 +21,27 @@ export function CardSkeleton({ type }: { type: CardKind }) {
   const lines = LINES_BY_KIND[type] ?? LINES_BY_KIND.place;
 
   return (
-    <Card size="sm" className="max-w-md" data-card-skeleton="true">
-      <CardHeader className="pb-2">
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-5 w-3/4" />
+    <Card
+      size="sm"
+      className="max-w-md motion-reduce:animate-none"
+      data-card-skeleton="true"
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label={`Loading ${type} suggestion`}
+    >
+      <span className="sr-only">Loading {type} suggestion…</span>
+      <CardHeader className="pb-2" aria-hidden="true">
+        <Skeleton className="h-4 w-1/3 motion-reduce:animate-none" />
+        <Skeleton className="h-5 w-3/4 motion-reduce:animate-none" />
       </CardHeader>
-      <CardContent className="flex flex-col gap-2">
+      <CardContent className="flex flex-col gap-2" aria-hidden="true">
         {lines.map((width, i) => (
-          <Skeleton key={i} className="h-3" style={{ width }} />
+          <Skeleton
+            key={i}
+            className="h-3 motion-reduce:animate-none"
+            style={{ width }}
+          />
         ))}
       </CardContent>
     </Card>

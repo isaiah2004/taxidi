@@ -69,7 +69,11 @@ export function TransportCard({
   if (hidden) return null;
   if (part.state === 'output-error') {
     return (
-      <Card size="sm" className="max-w-md border-destructive/40">
+      <Card
+        size="sm"
+        className="max-w-md border-destructive/40"
+        role="alert"
+      >
         <CardHeader>
           <CardTitle className="text-destructive">Transport card failed</CardTitle>
         </CardHeader>
@@ -125,10 +129,16 @@ export function TransportCard({
   }
 
   return (
-    <Card size="sm" className="max-w-md" data-card-type="transport">
+    <Card
+      size="sm"
+      className="max-w-md"
+      data-card-type="transport"
+      role="group"
+      aria-label="Proposed transport"
+    >
       <CardHeader className="pb-2">
         <div className="flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground">
-          <PlaneIcon className="size-3" /> Transport
+          <PlaneIcon className="size-3" aria-hidden="true" /> Transport
           {data.mode ? <span className="lowercase">({data.mode})</span> : null}
         </div>
         <CardTitle>
@@ -136,11 +146,19 @@ export function TransportCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 text-xs">
-        <div className="flex items-center gap-1.5 font-medium">
+        <div
+          className="flex items-center gap-1.5 font-medium"
+          aria-label={`Route from ${
+            data.fromOriginId ? truncate(data.fromOriginId, 8) : 'unknown'
+          } to ${data.toOriginId ? truncate(data.toOriginId, 8) : 'unknown'}`}
+        >
           <span className="rounded-md bg-muted px-1.5 py-0.5">
             {data.fromOriginId ? truncate(data.fromOriginId, 8) : '?'}
           </span>
-          <ArrowRightIcon className="size-3 text-muted-foreground" />
+          <ArrowRightIcon
+            className="size-3 text-muted-foreground"
+            aria-hidden="true"
+          />
           <span className="rounded-md bg-muted px-1.5 py-0.5">
             {data.toOriginId ? truncate(data.toOriginId, 8) : '?'}
           </span>
@@ -163,6 +181,7 @@ export function TransportCard({
             target="_blank"
             rel="noreferrer"
             className="font-medium text-primary hover:underline"
+            aria-label={`Booking link (opens in new tab)`}
           >
             Booking link
           </a>
@@ -172,8 +191,12 @@ export function TransportCard({
       </CardContent>
       <CardFooter className="justify-end gap-1.5">
         {accepted ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-            <CheckIcon className="size-3.5" /> Added
+          <span
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary"
+            role="status"
+            aria-live="polite"
+          >
+            <CheckIcon className="size-3.5" aria-hidden="true" /> Added
           </span>
         ) : (
           <>
@@ -182,15 +205,17 @@ export function TransportCard({
               size="sm"
               onClick={() => setHidden(true)}
               disabled={!isEditable || submitting}
+              aria-label="Reject transport suggestion"
             >
-              <XIcon /> Reject
+              <XIcon aria-hidden="true" /> Reject
             </Button>
             <Button
               size="sm"
               onClick={handleAccept}
               disabled={!isEditable || submitting}
+              aria-label="Accept and add transport"
             >
-              <CheckIcon /> Accept
+              <CheckIcon aria-hidden="true" /> Accept
             </Button>
           </>
         )}

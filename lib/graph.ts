@@ -345,7 +345,9 @@ export function snapshotToGraph(snapshot: SerializedSnapshot): TripGraph {
 export function nodesToGraph(rows: NodeRowLike[]): TripGraph {
   const live = rows.filter((r) => !r.deleted);
 
-  // Map node.id -> row, so we can resolve `parentNodeId` references.
+  // Map node.id -> row, so we can resolve `parentNodeId` references. Built
+  // once up front so the dayOriginId walk below is O(n) overall (each
+  // ancestor is a single map lookup); per-row we never re-scan `live`.
   const byId = new Map<string, NodeRowLike>();
   for (const r of live) byId.set(r.id, r);
 

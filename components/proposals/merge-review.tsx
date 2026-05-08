@@ -17,7 +17,7 @@
  * the preview before any DB write.
  */
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { diff, type Diff, type DiffOp } from '@/lib/diff';
 import type { SerializedSnapshot } from '@/lib/graph';
 import type { MergeProposal } from '@/db/schema';
@@ -71,6 +72,8 @@ export function MergeReview({
   );
   const [preview, setPreview] = useState<MergePreview | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
+  const instructionsId = useId();
+  const instructionsHelpId = useId();
 
   // The diff that drives the review pane. While `preview === null` we show
   // the raw variant-vs-main diff. Once the agent has run, we show the diff
@@ -173,17 +176,24 @@ export function MergeReview({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles aria-hidden className="h-4 w-4" />
-            Merge instructions
+            <Sparkles aria-hidden="true" className="h-4 w-4" />
+            <Label htmlFor={instructionsId} className="text-base font-medium">
+              Merge instructions
+            </Label>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
+          <p
+            id={instructionsHelpId}
+            className="text-sm text-muted-foreground"
+          >
             Tell the merge agent how to reconcile this variant. For example:
             &ldquo;Merge everything except day 2&rdquo; or &ldquo;Drop the meal
             on day 3.&rdquo;
           </p>
           <textarea
+            id={instructionsId}
+            aria-describedby={instructionsHelpId}
             className="w-full min-h-[120px] resize-y rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
@@ -195,20 +205,31 @@ export function MergeReview({
               type="button"
               onClick={handleAiMerge}
               disabled={isMerging || isCommitting || isDone}
+              aria-busy={isMerging || undefined}
+              aria-label={
+                isMerging
+                  ? 'Running AI merge'
+                  : preview
+                    ? 'Re-run AI merge with current instructions'
+                    : 'Run AI merge with current instructions'
+              }
             >
               {isMerging ? (
                 <>
-                  <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+                  <Loader2
+                    aria-hidden="true"
+                    className="h-4 w-4 animate-spin motion-reduce:animate-none"
+                  />
                   Merging…
                 </>
               ) : preview ? (
                 <>
-                  <Sparkles aria-hidden className="h-4 w-4" />
+                  <Sparkles aria-hidden="true" className="h-4 w-4" />
                   Re-run AI merge
                 </>
               ) : (
                 <>
-                  <Sparkles aria-hidden className="h-4 w-4" />
+                  <Sparkles aria-hidden="true" className="h-4 w-4" />
                   AI merge
                 </>
               )}
@@ -218,10 +239,17 @@ export function MergeReview({
               variant="default"
               onClick={handleCommit}
               disabled={!canCommit}
+              aria-busy={isCommitting || undefined}
+              aria-label={
+                isCommitting ? 'Committing merge to main' : 'Commit merge to main'
+              }
             >
               {isCommitting ? (
                 <>
-                  <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
+                  <Loader2
+                    aria-hidden="true"
+                    className="h-4 w-4 animate-spin motion-reduce:animate-none"
+                  />
                   Committing…
                 </>
               ) : (
@@ -229,7 +257,14 @@ export function MergeReview({
               )}
             </Button>
             {preview && (
-              <Badge variant="secondary">
+              <Badge
+                variant="secondary"
+                aria-label={`${preview.opsApplied.length} ${
+                  preview.opsApplied.length === 1 ? 'op' : 'ops'
+                } applied, ${preview.conflicts.length} ${
+                  preview.conflicts.length === 1 ? 'conflict' : 'conflicts'
+                }`}
+              >
                 {preview.opsApplied.length} op
                 {preview.opsApplied.length === 1 ? '' : 's'} ·{' '}
                 {preview.conflicts.length} conflict
@@ -241,25 +276,28 @@ export function MergeReview({
       </Card>
 
       {preview && preview.conflicts.length > 0 && (
-        <Card>
+        <Card role="region" aria-label="Merge conflicts">
           <CardHeader>
             <CardTitle>Conflicts flagged by the agent</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {preview.conflicts.map((c, i) => (
-              <div
-                key={`${c.originId}-${i}`}
-                className="rounded border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/40"
-              >
-                <div className="font-mono text-[10px] text-muted-foreground">
-                  {c.originId.slice(0, 12)}
-                </div>
-                <div className="font-medium uppercase tracking-wide">
-                  {c.kind}
-                </div>
-                <div>{c.reason}</div>
-              </div>
-            ))}
+            <ul className="space-y-2" aria-label="Conflict list">
+              {preview.conflicts.map((c, i) => (
+                <li
+                  key={`${c.originId}-${i}`}
+                  className="rounded border border-amber-300 bg-amber-50 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/40"
+                  role="alert"
+                >
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    {c.originId.slice(0, 12)}
+                  </div>
+                  <div className="font-medium uppercase tracking-wide">
+                    {c.kind}
+                  </div>
+                  <div>{c.reason}</div>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}

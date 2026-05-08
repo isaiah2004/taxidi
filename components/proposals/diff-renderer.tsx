@@ -206,15 +206,21 @@ function DiffRow({ row }: { row: RowDescriptor }): React.ReactElement {
 
   return (
     <div
+      role="listitem"
+      aria-label={`${style.label} ${row.originId.slice(0, 12) || ''}`}
       className={cn(
         'grid grid-cols-[140px_1fr_1fr] gap-3 rounded-md border p-3',
         style.bg,
         style.border,
       )}
     >
-      <div className={cn('flex flex-col gap-1', style.text)}>
+      <div
+        className={cn('flex flex-col gap-1', style.text)}
+        role="img"
+        aria-label={`Change type: ${style.label}`}
+      >
         <div className="flex items-center gap-1 font-semibold text-xs">
-          <Icon aria-hidden className="h-3.5 w-3.5" />
+          <Icon aria-hidden="true" className="h-3.5 w-3.5" />
           <span>{style.label}</span>
         </div>
         <div className="font-mono text-[10px] text-muted-foreground break-all">
@@ -285,15 +291,25 @@ export function DiffRenderer({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+      <div
+        role="status"
+        className="rounded border border-dashed border-border p-6 text-center text-sm text-muted-foreground"
+      >
         No differences. The variant is already aligned with main.
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-[140px_1fr_1fr] gap-3 px-3 text-xs font-medium uppercase text-muted-foreground">
+    <div
+      className="space-y-2"
+      role="list"
+      aria-label={`${rows.length} change${rows.length === 1 ? '' : 's'}`}
+    >
+      <div
+        className="grid grid-cols-[140px_1fr_1fr] gap-3 px-3 text-xs font-medium uppercase text-muted-foreground"
+        aria-hidden="true"
+      >
         <div>Op</div>
         <div>Main (current)</div>
         <div>Variant (proposed)</div>

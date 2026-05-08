@@ -220,6 +220,7 @@ export function MessageRenderer({
 function TextBubble({ role, text }: { role: string; text: string }) {
   if (!text) return null;
   const isUser = role === 'user';
+  const speakerLabel = isUser ? 'You said' : 'Assistant said';
   return (
     <div
       className={cn(
@@ -229,6 +230,7 @@ function TextBubble({ role, text }: { role: string; text: string }) {
           : 'self-start bg-muted',
       )}
     >
+      <span className="sr-only">{speakerLabel}: </span>
       {text}
     </div>
   );
@@ -244,8 +246,11 @@ function ToolBadge({
   detail?: string;
 }) {
   return (
-    <div className="inline-flex items-center gap-1.5 self-start rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-xs text-muted-foreground">
-      {icon}
+    <div
+      className="inline-flex items-center gap-1.5 self-start rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-xs text-muted-foreground"
+      aria-label={detail ? `${label}: ${detail}` : label}
+    >
+      <span aria-hidden="true">{icon}</span>
       <span className="font-medium">{label}</span>
       {detail ? (
         <span className="truncate max-w-[16rem]" title={detail}>

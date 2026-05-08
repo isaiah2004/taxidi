@@ -229,14 +229,21 @@ export function GraphTab({ graph, onVertexClick, onEdgeClick }: GraphTabProps) {
 
   if (!graph || nodes.length === 0) {
     return (
-      <div className="flex h-full min-h-[400px] flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground">
+      <div
+        role="status"
+        className="flex h-full min-h-[400px] flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground"
+      >
         No places yet — ask @taxidi or click Add Place.
       </div>
     );
   }
 
   return (
-    <div className="h-full min-h-[480px] w-full rounded-lg border border-border bg-background">
+    <div
+      role="region"
+      aria-label="Trip graph"
+      className="h-full min-h-[480px] w-full rounded-lg border border-border bg-background"
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -249,6 +256,11 @@ export function GraphTab({ graph, onVertexClick, onEdgeClick }: GraphTabProps) {
         fitView
         fitViewOptions={{ padding: 0.2 }}
         proOptions={{ hideAttribution: true }}
+        aria-label={`Trip graph with ${nodes.length} ${
+          nodes.length === 1 ? 'place' : 'places'
+        } and ${edges.length} ${
+          edges.length === 1 ? 'transport leg' : 'transport legs'
+        }`}
       >
         <Background gap={20} />
         <Controls position="bottom-right" />

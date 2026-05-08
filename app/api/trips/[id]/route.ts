@@ -8,6 +8,7 @@
  */
 import { and, desc, eq, ne } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -21,6 +22,10 @@ import { getOrCreateVariantForUser, isOwner } from '@/lib/variants';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+// Trip-book ids are UUIDs. Reject anything else up-front so we don't waste a
+// DB round trip and don't leak a "not found" oracle for malformed ids.
+const TripBookIdSchema = z.uuid();
 
 interface VariantSummary {
   id: string;
@@ -53,9 +58,9 @@ export async function GET(
 ): Promise<Response> {
   const { id: tripBookId } = await context.params;
 
-  if (!tripBookId) {
+  if (!TripBookIdSchema.safeParse(tripBookId).success) {
     return NextResponse.json(
-      { error: 'Missing trip book id' },
+      { error: 'Invalid trip book id' },
       { status: 400 },
     );
   }

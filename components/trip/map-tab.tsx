@@ -17,8 +17,17 @@ import {
   Marker,
   Polyline,
   useJsApiLoader,
+  type Libraries,
 } from '@react-google-maps/api';
 import type { GraphEdge, TripGraph, Vertex } from '@/lib/graph';
+
+/**
+ * Maps JS API library set. We need `geometry` for
+ * `google.maps.geometry.encoding.decodePath` to render Routes-API polylines.
+ * `Libraries` is referenced statically so React doesn't reload the script on
+ * every render — see @react-google-maps/api docs.
+ */
+const MAP_LIBRARIES: Libraries = ['geometry'];
 
 const CONTAINER_STYLE = {
   width: '100%',
@@ -29,6 +38,7 @@ const CONTAINER_STYLE = {
 const DEFAULT_CENTER = { lat: 0, lng: 0 };
 const DEFAULT_ZOOM = 2;
 
+/** Dashed grey for straight-line fallback polylines (no Routes data). */
 const POLYLINE_OPTIONS: google.maps.PolylineOptions = {
   strokeColor: '#94a3b8',
   strokeOpacity: 0,
@@ -40,6 +50,13 @@ const POLYLINE_OPTIONS: google.maps.PolylineOptions = {
       repeat: '12px',
     },
   ],
+};
+
+/** Solid blue for Routes-API-decoded polylines (real on-the-ground path). */
+const ROUTE_POLYLINE_OPTIONS: google.maps.PolylineOptions = {
+  strokeColor: '#3b82f6',
+  strokeOpacity: 0.9,
+  strokeWeight: 3,
 };
 
 function isGeocoded(
@@ -62,6 +79,7 @@ export function MapTab({ graph, onVertexClick }: MapTabProps) {
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'taxidi-google-map',
     googleMapsApiKey: apiKey ?? '',
+    libraries: MAP_LIBRARIES,
   });
 
   const placedVertices = useMemo(
@@ -74,8 +92,16 @@ export function MapTab({ graph, onVertexClick }: MapTabProps) {
     [placedVertices],
   );
 
-  const polylines = useMemo(() => {
-    if (!graph) return [] as Array<{ id: string; path: google.maps.LatLngLiteral[] }>;
+  type MapPolyline = {
+    id: string;
+    path: google.maps.LatLngLiteral[];
+    edge: GraphEdge;
+    /** True when `path` came from a decoded Routes API polyline. */
+    routed: boolean;
+  };
+
+  const polylines = useMemo<MapPolyline[]>(() => {
+    if (!graph || !isLoaded) return [];
     return graph.edges
       .filter(
         (e) =>
@@ -85,16 +111,42 @@ export function MapTab({ graph, onVertexClick }: MapTabProps) {
       .map((e) => {
         const a = placedById.get(e.sourceOriginId)!;
         const b = placedById.get(e.targetOriginId)!;
+
+        // Prefer the Routes-API encoded polyline (when present on the
+        // transport node's typeData) — it's the actual on-the-ground path.
+        // Fall back to a straight line between the two endpoints.
+        const td = (e as unknown as { typeData?: Record<string, unknown> })
+          ?.typeData;
+        const encoded =
+          typeof td?.encodedPolyline === 'string'
+            ? td.encodedPolyline
+            : typeof td?.encoded_polyline === 'string'
+              ? td.encoded_polyline
+              : null;
+
+        if (encoded && google.maps.geometry?.encoding?.decodePath) {
+          try {
+            const decoded = google.maps.geometry.encoding.decodePath(encoded);
+            const path = decoded.map((p) => ({ lat: p.lat(), lng: p.lng() }));
+            if (path.length >= 2) {
+              return { id: e.originId, path, edge: e, routed: true };
+            }
+          } catch (err) {
+            console.error('[map-tab] failed to decode polyline', err);
+          }
+        }
+
         return {
           id: e.originId,
           path: [
             { lat: a.location.lat, lng: a.location.lng },
             { lat: b.location.lat, lng: b.location.lng },
           ],
-          edge: e as GraphEdge,
+          edge: e,
+          routed: false,
         };
       });
-  }, [graph, placedById]);
+  }, [graph, placedById, isLoaded]);
 
   const onMapLoad = useCallback(
     (map: google.maps.Map) => {
@@ -170,7 +222,11 @@ export function MapTab({ graph, onVertexClick }: MapTabProps) {
           />
         ))}
         {polylines.map((p) => (
-          <Polyline key={p.id} path={p.path} options={POLYLINE_OPTIONS} />
+          <Polyline
+            key={p.id}
+            path={p.path}
+            options={p.routed ? ROUTE_POLYLINE_OPTIONS : POLYLINE_OPTIONS}
+          />
         ))}
       </GoogleMap>
     </div>

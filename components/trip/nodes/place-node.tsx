@@ -58,23 +58,37 @@ function PlaceNodeImpl({ data, selected }: NodeProps<PlaceNodeType>) {
   const vertex = data.vertex;
   const Icon = ICONS[vertex.type] ?? MapPin;
   const time = formatTimeRange(vertex.startAt, vertex.endAt);
+  const ariaLabel = [
+    `${vertex.title} (${vertex.type})`,
+    time ? `at ${time}` : null,
+    vertex.location?.address ?? null,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div
       className={cn(
-        'flex h-[80px] w-[180px] flex-col gap-1 rounded-lg border bg-card p-2 text-card-foreground shadow-sm transition-shadow',
+        'flex h-[80px] w-[180px] flex-col gap-1 rounded-lg border bg-card p-2 text-card-foreground shadow-sm transition-shadow motion-reduce:transition-none',
         selected
           ? 'border-primary ring-2 ring-primary/30'
           : 'border-border hover:shadow-md',
       )}
+      role="button"
+      aria-label={ariaLabel}
+      aria-selected={selected || undefined}
     >
       <Handle
         type="target"
         position={Position.Left}
         className="!h-2 !w-2 !border-border !bg-background"
+        aria-hidden
       />
       <div className="flex items-center gap-1.5">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <Icon
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
         <span className="truncate text-xs font-medium">{vertex.title}</span>
       </div>
       {time && (
@@ -91,6 +105,7 @@ function PlaceNodeImpl({ data, selected }: NodeProps<PlaceNodeType>) {
         type="source"
         position={Position.Right}
         className="!h-2 !w-2 !border-border !bg-background"
+        aria-hidden
       />
     </div>
   );

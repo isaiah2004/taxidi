@@ -11,13 +11,28 @@ import { membership, tripBook, type Membership } from '@/db/schema';
  * the rest of the function runs only when the caller is authenticated /
  * authorized.
  *
- * Dev escape hatch: when `DISABLE_AUTH=true` is set, both helpers short-
- * circuit to a fixed test user (`dev-user`). This is a TEMPORARY testing
- * flag; never set it in production.
+ * @remarks
+ * **DEV-ONLY escape hatch:** when `DISABLE_AUTH=true` is set, both helpers
+ * short-circuit to a fixed test user (`dev-user`). This flag exists ONLY
+ * for local development and CI smoke tests where a Clerk session isn't
+ * available — it MUST never be set in production. The production deploy
+ * checklist in `SECURITY.md` requires verifying this env var is unset on
+ * Cloud Run before promoting traffic.
+ *
+ * A loud `console.warn` is printed at module-load when DEV_BYPASS is
+ * active so it shows up in any environment that picks up the flag by
+ * accident.
  */
 
 const DEV_BYPASS = process.env.DISABLE_AUTH === 'true';
 const DEV_USER_ID = 'dev-user';
+
+if (DEV_BYPASS) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[auth] DISABLE_AUTH=true — auth checks are bypassed. Never set this in production.',
+  );
+}
 
 export class UnauthenticatedError extends Error {
   readonly status = 401;

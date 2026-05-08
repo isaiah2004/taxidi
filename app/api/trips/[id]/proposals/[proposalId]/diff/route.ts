@@ -13,6 +13,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import {
   ForbiddenError,
@@ -28,6 +29,9 @@ import { isOwner } from '@/lib/variants';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+const TripBookIdSchema = z.uuid();
+const ProposalIdSchema = z.uuid();
 
 function authErrorResponse(err: unknown): NextResponse | null {
   if (err instanceof UnauthenticatedError) {
@@ -60,9 +64,12 @@ export async function GET(
 ): Promise<Response> {
   const { id: tripBookId, proposalId } = await context.params;
 
-  if (!tripBookId || !proposalId) {
+  if (
+    !TripBookIdSchema.safeParse(tripBookId).success ||
+    !ProposalIdSchema.safeParse(proposalId).success
+  ) {
     return NextResponse.json(
-      { error: 'Missing trip book id or proposal id' },
+      { error: 'Invalid trip book id or proposal id' },
       { status: 400 },
     );
   }

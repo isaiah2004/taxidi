@@ -144,78 +144,108 @@ export function ItineraryTab({
 
   if (!graph || buckets.length === 0) {
     return (
-      <div className="flex h-full min-h-[400px] items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground">
+      <div
+        className="flex h-full min-h-[400px] items-center justify-center rounded-lg border border-dashed border-border bg-background/40 text-sm text-muted-foreground"
+        role="status"
+      >
         Nothing scheduled yet.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {buckets.map((bucket, idx) => (
-        <Card key={bucket.day?.originId ?? `unscheduled-${idx}`}>
-          <CardHeader>
-            <CardTitle>
-              {formatDayHeader(bucket.day, 'Unscheduled')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {bucket.vertices.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No items for this day.
-              </p>
-            ) : (
-              <ol className="flex flex-col gap-2">
-                {bucket.vertices.map((v) => {
-                  const time = formatTimeRange(v.startAt, v.endAt);
-                  const outgoing = edgesBySource.get(v.originId) ?? [];
-                  return (
-                    <Fragment key={v.originId}>
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => onVertexClick?.(v)}
-                          className="flex w-full flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-muted"
-                        >
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="font-medium">{v.title}</span>
-                            {time && (
+    <div className="flex flex-col gap-4" role="region" aria-label="Itinerary">
+      {buckets.map((bucket, idx) => {
+        const dayLabel = formatDayHeader(bucket.day, 'Unscheduled');
+        return (
+          <Card key={bucket.day?.originId ?? `unscheduled-${idx}`}>
+            <CardHeader>
+              <CardTitle>
+                <h2 className="font-heading text-base leading-snug font-medium">
+                  {dayLabel}
+                </h2>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {bucket.vertices.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No items for this day.
+                </p>
+              ) : (
+                <ol
+                  className="flex flex-col gap-2"
+                  aria-label={`${dayLabel} items`}
+                >
+                  {bucket.vertices.map((v) => {
+                    const time = formatTimeRange(v.startAt, v.endAt);
+                    const outgoing = edgesBySource.get(v.originId) ?? [];
+                    const itemAriaLabel = [
+                      v.title,
+                      `(${v.type})`,
+                      time ? `at ${time}` : null,
+                      v.location?.address ?? null,
+                    ]
+                      .filter(Boolean)
+                      .join(' ');
+                    return (
+                      <Fragment key={v.originId}>
+                        <li>
+                          <button
+                            type="button"
+                            onClick={() => onVertexClick?.(v)}
+                            aria-label={`Edit ${itemAriaLabel}`}
+                            className="flex w-full flex-col gap-0.5 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="font-medium">{v.title}</span>
+                              {time && (
+                                <span className="text-xs text-muted-foreground">
+                                  {time}
+                                </span>
+                              )}
+                            </span>
+                            {v.location?.address && (
                               <span className="text-xs text-muted-foreground">
-                                {time}
+                                {v.location.address}
                               </span>
                             )}
-                          </span>
-                          {v.location?.address && (
-                            <span className="text-xs text-muted-foreground">
-                              {v.location.address}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                      {outgoing.map((e) => {
-                        const Icon = MODE_ICONS[e.mode] ?? Car;
-                        return (
-                          <li key={e.originId} className="pl-6">
-                            <button
-                              type="button"
-                              onClick={() => onEdgeClick?.(e)}
-                              className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <Icon className="h-3.5 w-3.5" />
-                              <span className="capitalize">{e.mode}</span>
-                              {e.carrier && <span>· {e.carrier}</span>}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </Fragment>
-                  );
-                })}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+                          </button>
+                        </li>
+                        {outgoing.map((e) => {
+                          const Icon = MODE_ICONS[e.mode] ?? Car;
+                          const edgeLabel = [
+                            `${e.mode} transport`,
+                            e.carrier ? `via ${e.carrier}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' ');
+                          return (
+                            <li key={e.originId} className="pl-6">
+                              <button
+                                type="button"
+                                onClick={() => onEdgeClick?.(e)}
+                                aria-label={`Edit ${edgeLabel}`}
+                                className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <Icon
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                />
+                                <span className="capitalize">{e.mode}</span>
+                                {e.carrier && <span>· {e.carrier}</span>}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </Fragment>
+                    );
+                  })}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }

@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { Loader2Icon, SendIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 import { MessageRenderer } from './message-renderer';
@@ -59,6 +60,8 @@ export function TripChat({
 
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const inputId = useId();
+  const statusId = useId();
   const isStreaming = status === 'submitted' || status === 'streaming';
 
   // Auto-scroll to bottom on new messages or streaming chunks.
@@ -80,27 +83,41 @@ export function TripChat({
   }
 
   return (
-    <div
+    <section
       className={cn(
         'flex h-full min-h-0 w-full flex-col rounded-xl border bg-card',
         className,
       )}
       data-trip-chat
+      aria-label="Trip planning chat"
     >
       <header className="flex items-center justify-between border-b px-3 py-2">
-        <div className="text-sm font-medium">Plan with @taxidi</div>
+        <h2 className="text-sm font-medium">Plan with @taxidi</h2>
         {isStreaming ? (
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <Loader2Icon className="size-3 animate-spin" />
+          <span
+            id={statusId}
+            role="status"
+            aria-live="polite"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+          >
+            <Loader2Icon
+              className="size-3 animate-spin motion-reduce:animate-none"
+              aria-hidden="true"
+            />
             {status === 'submitted' ? 'thinking…' : 'streaming…'}
           </span>
         ) : null}
       </header>
 
       <div
+        id="trip-chat-messages"
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto px-3 py-3"
         data-trip-chat-list
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label="Chat messages"
       >
         {messages.length === 0 ? (
           <EmptyState />
@@ -119,7 +136,10 @@ export function TripChat({
         )}
 
         {error ? (
-          <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+          <p
+            role="alert"
+            className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive"
+          >
             {error.message}
           </p>
         ) : null}
@@ -128,24 +148,29 @@ export function TripChat({
       <form
         onSubmit={handleSubmit}
         className="flex items-center gap-2 border-t px-3 py-2"
+        aria-label="Send chat message"
       >
+        <Label htmlFor={inputId} className="sr-only">
+          Message
+        </Label>
         <Input
+          id={inputId}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Tag @taxidi to plan, or chat with the group…"
           disabled={isStreaming}
-          aria-label="Message"
+          aria-describedby={isStreaming ? statusId : undefined}
         />
         <Button
           type="submit"
           size="icon"
           disabled={isStreaming || input.trim().length === 0}
-          aria-label="Send"
+          aria-label="Send message"
         >
-          <SendIcon />
+          <SendIcon aria-hidden="true" />
         </Button>
       </form>
-    </div>
+    </section>
   );
 }
 
