@@ -1,120 +1,182 @@
-"use client";
+/**
+ * Dashboard router — sends signed-in users to their most recently updated
+ * trip, or to a "Create your first trip" empty state when they have none.
+ *
+ * Server component end-to-end: the empty-state's "Create Trip Book" form is a
+ * `<form action={createTripAction}>` so we don't need a client island. The
+ * action runs server-side, performs the same trip-book bootstrap as
+ * `POST /api/trips`, and `redirect()`s into the new trip.
+ */
+import { and, desc, eq, exists } from 'drizzle-orm';
+import { redirect } from 'next/navigation';
 
-import { AppSidebar } from "@/components/app-sidebar"
-import { SiteHeader } from "@/components/site-header"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { SendIcon, PlaneIcon, UsersIcon } from "lucide-react"
-import { useChat } from "@ai-sdk/react"
-import { useState } from "react"
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  ForbiddenError,
+  UnauthenticatedError,
+  getCurrentUserId,
+} from '@/lib/auth';
+import { db } from '@/lib/db';
+import {
+  mainVersion,
+  membership,
+  tripBook,
+  variant,
+} from '@/db/schema';
 
-import { Trip } from "@/components/app-sidebar"
+export const dynamic = 'force-dynamic';
 
-const INITIAL_TRIPS: Trip[] = [
-  { id: "1", title: "Summer in Greece", url: "#", icon: PlaneIcon },
-  { id: "2", title: "Japan 2027", url: "#", icon: PlaneIcon },
-];
+/**
+ * Server action: create a new trip book + initial main_version + owner
+ * variant in one transaction, then redirect into the new trip's detail page.
+ */
+async function createTripAction(formData: FormData): Promise<void> {
+  'use server';
 
-const SHARED_TRIPS: Trip[] = [
-  { id: "3", title: "Family Reunion", url: "#", icon: UsersIcon },
-];
+  const rawName = formData.get('name');
+  const name =
+    typeof rawName === 'string' && rawName.trim().length > 0
+      ? rawName.trim()
+      : 'Untitled trip';
 
-export default function Page() {
-  const [myTrips, setMyTrips] = useState<Trip[]>(INITIAL_TRIPS);
-  const [sharedTrips] = useState<Trip[]>(SHARED_TRIPS);
-  const [currentTripId, setCurrentTripId] = useState<string>("1");
+  let userId: string;
+  try {
+    userId = await getCurrentUserId();
+  } catch (err) {
+    if (err instanceof UnauthenticatedError || err instanceof ForbiddenError) {
+      redirect('/sign-in');
+    }
+    throw err;
+  }
 
-  const currentTrip = [...myTrips, ...sharedTrips].find(t => t.id === currentTripId);
+  const created = await db.transaction(async (tx) => {
+    const [tripRow] = await tx
+      .insert(tripBook)
+      .values({ name, ownerUserId: userId })
+      .returning();
 
-  const { messages, sendMessage } = useChat();
-  const [input, setInput] = useState("");
+    const [versionRow] = await tx
+      .insert(mainVersion)
+      .values({
+        tripBookId: tripRow.id,
+        parentVersionId: null,
+        snapshot: { nodes: [] },
+        committedByUserId: userId,
+        message: 'Initial trip',
+      })
+      .returning();
 
-  const handleCreateTrip = () => {
-    const newTripTitle = prompt("Enter a name for your new Tripbook:");
-    if (!newTripTitle) return;
-    const newTrip: Trip = {
-      id: Date.now().toString(),
-      title: newTripTitle,
-      url: "#",
-      icon: PlaneIcon
-    };
-    setMyTrips([...myTrips, newTrip]);
-    setCurrentTripId(newTrip.id);
-  };
+    await tx
+      .update(tripBook)
+      .set({ currentMainVersionId: versionRow.id })
+      .where(eq(tripBook.id, tripRow.id));
 
+    await tx.insert(membership).values({
+      tripBookId: tripRow.id,
+      userId,
+      role: 'owner',
+      status: 'active',
+      joinedAt: new Date(),
+    });
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInput(e.target.value);
-  };
+    await tx.insert(variant).values({
+      tripBookId: tripRow.id,
+      ownerUserId: userId,
+      baseMainVersionId: versionRow.id,
+      status: 'draft',
+    });
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage({ role: "user", parts: [{ type: "text", text: input }], id: Date.now().toString() });
-    setInput("");
-  };
+    return tripRow;
+  });
 
-  return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": "19rem",
-          "--header-height": "60px",
-        } as React.CSSProperties
-      }
-    >
-      <AppSidebar 
-        myTrips={myTrips} 
-        sharedTrips={sharedTrips}
-        currentTripId={currentTripId}
-        onCreateTrip={handleCreateTrip}
-        onSelectTrip={(trip) => setCurrentTripId(trip.id)}
-      />
-      <SidebarInset>
-        <SiteHeader currentTripTitle={currentTrip?.title || "Trip Board"} />
-        <div className="flex flex-1 overflow-hidden">
-          <main className="flex-1 bg-muted/20" />
-
-          <aside className="w-80 border-l bg-background flex flex-col">
-            <div className="p-4 border-b font-medium">Trip Chat</div>
-            <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
-              {messages.length === 0 ? (
-                <div className="text-sm text-muted-foreground text-center my-4">
-                  Welcome to the {currentTrip?.title} chat!
-                </div>
-              ) : (
-                messages.map((m) => (
-                  <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <span className="text-xs text-muted-foreground mb-1 ml-1">
-                      {m.role === 'user' ? 'You' : m.role === 'assistant' ? 'Agent' : m.role}
-                    </span>
-                    <div className={`px-3 py-2 rounded-lg max-w-[85%] text-sm ${
-                      m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
-                    }`}>
-                      {m.parts ? m.parts.map((p: any) => p.type === 'text' ? p.text : '').join('') : (m as any).content}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <form onSubmit={handleSubmit} className="p-4 border-t flex gap-2">
-              <Input 
-                type="text" 
-                value={input}
-                onChange={handleInputChange}
-                placeholder="Type a message..." 
-                className="flex-1"
-              />
-              <Button type="submit" size="icon" disabled={!input.trim()}>
-                <SendIcon className="size-4" />
-                <span className="sr-only">Send</span>
-              </Button>
-            </form>
-          </aside>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
-  )
+  redirect(`/trips/${created.id}`);
 }
 
+export default async function DashboardPage() {
+  let userId: string;
+  try {
+    userId = await getCurrentUserId();
+  } catch (err) {
+    if (err instanceof UnauthenticatedError || err instanceof ForbiddenError) {
+      redirect('/sign-in');
+    }
+    throw err;
+  }
+
+  // Find the most recently updated trip across owned + shared. Two indexed
+  // queries + picking the newer on the server is simpler than building a
+  // UNION through Drizzle.
+  const [latestOwned] = await db
+    .select({
+      id: tripBook.id,
+      updatedAt: tripBook.updatedAt,
+    })
+    .from(tripBook)
+    .where(eq(tripBook.ownerUserId, userId))
+    .orderBy(desc(tripBook.updatedAt))
+    .limit(1);
+
+  const [latestShared] = await db
+    .select({
+      id: tripBook.id,
+      updatedAt: tripBook.updatedAt,
+    })
+    .from(tripBook)
+    .where(
+      exists(
+        db
+          .select({ one: membership.userId })
+          .from(membership)
+          .where(
+            and(
+              eq(membership.tripBookId, tripBook.id),
+              eq(membership.userId, userId),
+              eq(membership.role, 'member'),
+              eq(membership.status, 'active'),
+            ),
+          ),
+      ),
+    )
+    .orderBy(desc(tripBook.updatedAt))
+    .limit(1);
+
+  const candidates = [latestOwned, latestShared].filter(
+    (row): row is { id: string; updatedAt: Date } => Boolean(row),
+  );
+
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    redirect(`/trips/${candidates[0].id}`);
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted/20 px-4">
+      <div className="w-full max-w-md rounded-lg border bg-background p-8 shadow-sm">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Plan your first trip
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          A trip book holds one trip — give it a name to get started. You can
+          rename or invite collaborators later.
+        </p>
+        <form action={createTripAction} className="mt-6 flex flex-col gap-3">
+          <label htmlFor="trip-name" className="text-sm font-medium">
+            Trip name
+          </label>
+          <Input
+            id="trip-name"
+            name="name"
+            placeholder="e.g. Summer in Greece"
+            required
+            maxLength={200}
+            autoFocus
+          />
+          <Button type="submit" className="mt-2 w-full">
+            Create trip book
+          </Button>
+        </form>
+      </div>
+    </div>
+  );
+}

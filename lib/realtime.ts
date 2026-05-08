@@ -184,6 +184,74 @@ export async function broadcastToVariant(
   return pusher.trigger(variantChannel(variantId), event, payload);
 }
 
+/**
+ * Returns true when every required server-side Pusher env var is set, false
+ * otherwise. We don't lazily initialize the Pusher client here — that's the
+ * job of `getServerPusher` — but a missing env var is the most common cause
+ * of a silent broadcast failure in dev, so we surface it explicitly.
+ */
+function isPusherConfigured(): boolean {
+  return Boolean(
+    process.env.PUSHER_APP_ID &&
+      process.env.PUSHER_KEY &&
+      process.env.PUSHER_SECRET &&
+      process.env.PUSHER_CLUSTER,
+  );
+}
+
+/**
+ * Best-effort version of `broadcastToTripBook`. If Pusher is unconfigured (dev
+ * mode without the env vars set) OR the trigger fails for any reason, log a
+ * warning and resolve. Production deploys WILL have Pusher configured; this
+ * exists so a missing var or transient outage doesn't crash a critical write
+ * path (e.g. a chat send) when the realtime fanout is purely an enhancement.
+ */
+export async function safeBroadcastToTripBook(
+  tripBookId: string,
+  event: string,
+  payload: unknown,
+): Promise<void> {
+  if (!isPusherConfigured()) {
+    console.warn(
+      '[realtime] safeBroadcastToTripBook: Pusher is not configured — skipping',
+    );
+    return;
+  }
+  try {
+    await broadcastToTripBook(tripBookId, event, payload);
+  } catch (err) {
+    console.warn(
+      '[realtime] safeBroadcastToTripBook failed:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/**
+ * Best-effort version of `broadcastToVariant`. Same semantics as
+ * `safeBroadcastToTripBook`.
+ */
+export async function safeBroadcastToVariant(
+  variantId: string,
+  event: string,
+  payload: unknown,
+): Promise<void> {
+  if (!isPusherConfigured()) {
+    console.warn(
+      '[realtime] safeBroadcastToVariant: Pusher is not configured — skipping',
+    );
+    return;
+  }
+  try {
+    await broadcastToVariant(variantId, event, payload);
+  } catch (err) {
+    console.warn(
+      '[realtime] safeBroadcastToVariant failed:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Client-side singleton
 // ---------------------------------------------------------------------------
