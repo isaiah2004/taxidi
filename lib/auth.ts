@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
-import { membership, type Membership } from '@/db/schema';
+import { membership, tripBook, type Membership } from '@/db/schema';
 
 /**
  * Auth helpers for Taxidi server code (Route Handlers, Server Actions,
@@ -10,7 +10,14 @@ import { membership, type Membership } from '@/db/schema';
  * `null` so callers can `await` them at the top of a handler and trust
  * the rest of the function runs only when the caller is authenticated /
  * authorized.
+ *
+ * Dev escape hatch: when `DISABLE_AUTH=true` is set, both helpers short-
+ * circuit to a fixed test user (`dev-user`). This is a TEMPORARY testing
+ * flag; never set it in production.
  */
+
+const DEV_BYPASS = process.env.DISABLE_AUTH === 'true';
+const DEV_USER_ID = 'dev-user';
 
 export class UnauthenticatedError extends Error {
   readonly status = 401;
@@ -33,6 +40,7 @@ export class ForbiddenError extends Error {
  * Throws `UnauthenticatedError` (HTTP 401) if no session is present.
  */
 export async function getCurrentUserId(): Promise<string> {
+  if (DEV_BYPASS) return DEV_USER_ID;
   const { userId } = await auth();
   if (!userId) {
     throw new UnauthenticatedError();
@@ -48,6 +56,11 @@ export async function getCurrentUserId(): Promise<string> {
  * Callers that need extra fields (role, joinedAt, etc.) get them via the
  * returned row; we deliberately avoid joining other tables here to keep
  * this hot path a single indexed lookup.
+ *
+ * In `DISABLE_AUTH=true` mode, if there's no membership row for the dev
+ * user but the trip book exists, we synthesize an owner-shaped row so
+ * the rest of the request flow proceeds. This lets a clean DB get
+ * exercised end-to-end without a sign-in step.
  */
 export async function requireMembership(
   tripBookId: string,
@@ -65,6 +78,29 @@ export async function requireMembership(
     .limit(1);
 
   if (!row) {
+    if (DEV_BYPASS) {
+      const [book] = await db
+        .select({ id: tripBook.id, ownerUserId: tripBook.ownerUserId })
+        .from(tripBook)
+        .where(eq(tripBook.id, tripBookId))
+        .limit(1);
+      if (!book) {
+        throw new ForbiddenError('Trip book not found');
+      }
+      const isOwner = book.ownerUserId === userId;
+      const synthetic: Membership = {
+        tripBookId,
+        userId,
+        role: isOwner ? 'owner' : 'member',
+        status: 'active',
+        invitedByUserId: null,
+        invitationToken: null,
+        joinedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      return synthetic;
+    }
     throw new ForbiddenError('Not a member of this trip book');
   }
   if (row.status !== 'active') {
