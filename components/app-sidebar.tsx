@@ -16,18 +16,19 @@ import {
 } from "@/components/ui/sidebar"
 import { MapIcon, UsersIcon, PlaneIcon } from "lucide-react"
 
-const data = {
-  myTrips: [
-    { title: "Summer in Greece", url: "#", icon: PlaneIcon },
-    { title: "Japan 2027", url: "#", icon: PlaneIcon },
-  ],
-  sharedTrips: [
-    { title: "Family Reunion", url: "#", icon: UsersIcon },
-    { title: "Eurotrip with Friends", url: "#", icon: UsersIcon },
-  ],
+
+
+export type Trip = { id: string; title: string; url: string; icon: any };
+
+export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
+  myTrips: Trip[];
+  sharedTrips: Trip[];
+  onCreateTrip: () => void;
+  onSelectTrip: (trip: Trip) => void;
+  currentTripId: string | null;
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ myTrips, sharedTrips, onCreateTrip, onSelectTrip, currentTripId, ...props }: AppSidebarProps) {
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -47,16 +48,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupLabel>My Trips</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {data.myTrips.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <a href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </a>
+              {myTrips.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton 
+                    isActive={currentTripId === item.id}
+                    onClick={() => onSelectTrip(item)}
+                  >
+                    <item.icon />
+                    <span>{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={onCreateTrip} className="text-muted-foreground">
+                  <PlaneIcon />
+                  <span>+ Create Tripbook</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -64,13 +72,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupLabel>Shared with Me</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {data.sharedTrips.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <a href={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </a>
+              {sharedTrips.map((item) => (
+                <SidebarMenuItem key={item.id}>
+                  <SidebarMenuButton 
+                    isActive={currentTripId === item.id}
+                    onClick={() => onSelectTrip(item)}
+                  >
+                    <item.icon />
+                    <span>{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
