@@ -52,7 +52,7 @@ export function AppSidebar({ myTrips, sharedTrips, onCreateTrip, onSelectTrip, c
             <SidebarMenu>
               {myTrips.map((item) => (
                 <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton 
+                  <SidebarMenuButton
                     isActive={currentTripId === item.id}
                     onClick={() => onSelectTrip(item)}
                   >
@@ -70,24 +70,26 @@ export function AppSidebar({ myTrips, sharedTrips, onCreateTrip, onSelectTrip, c
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Shared with Me</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {sharedTrips.map((item) => (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton 
-                    isActive={currentTripId === item.id}
-                    onClick={() => onSelectTrip(item)}
-                  >
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {sharedTrips.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Shared with Me</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {sharedTrips.map((item) => (
+                  <SidebarMenuItem key={item.id}>
+                    <SidebarMenuButton
+                      isActive={currentTripId === item.id}
+                      onClick={() => onSelectTrip(item)}
+                    >
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
@@ -97,7 +99,6 @@ export function AppSidebar({ myTrips, sharedTrips, onCreateTrip, onSelectTrip, c
                 <UserButton
                   appearance={{ elements: { userButtonAvatarBox: "size-7" } }}
                 />
-                <span className="text-sm text-muted-foreground">Account</span>
               </div>
             </Show>
             <Show when="signed-out">
