@@ -1,0 +1,125 @@
+# Cloud Build pipeline for Taxidi: build the standalone Next.js Docker image,
+# push it to Artifact Registry, and deploy it to Cloud Run.
+#
+# Trigger setup (one-time, in GCP console or via `gcloud builds triggers`):
+#   1. Connect the GitHub repo to Cloud Build (2nd-gen connection).
+#   2. Create a push trigger on `master` (`^master$`) pointing at this file.
+#   3. In the trigger settings, add substitutions for the four
+#      `_NEXT_PUBLIC_*` build args + `_PUSHER_CLUSTER`. The publishable
+#      values are referenced via `availableSecrets` below so they are
+#      pulled from Secret Manager at build time rather than living in
+#      this file's git history.
+#   4. Grant the Cloud Build service account
+#      (`<PROJECT_NUMBER>@cloudbuild.gserviceaccount.com`) the roles:
+#        - roles/run.admin
+#        - roles/iam.serviceAccountUser  (on taxidi-run@$PROJECT_ID)
+#        - roles/artifactregistry.writer
+#        - roles/secretmanager.secretAccessor
+#
+# Secrets referenced below must already exist in Secret Manager:
+#   clerk-publishable-key, pusher-key, pusher-cluster, google-maps-publishable-key
+#   (build-time, NEXT_PUBLIC_*)
+#   taxidi-db-password, clerk-secret-key, clerk-webhook-secret, openai-api-key,
+#   google-genai-key, pusher-app-id, pusher-secret, google-maps-api-key
+#   (runtime, --set-secrets)
+
+steps:
+  # 1. Build the image, tagged with both the commit SHA and `latest`. Public
+  #    NEXT_PUBLIC_* values must be passed in here so they are inlined into
+  #    the client bundle by `next build`.
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    secretEnv:
+      - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+      - NEXT_PUBLIC_PUSHER_KEY
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    args:
+      - -c
+      - |
+        docker build \
+          --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
+          --build-arg NEXT_PUBLIC_PUSHER_KEY="$$NEXT_PUBLIC_PUSHER_KEY" \
+          --build-arg NEXT_PUBLIC_PUSHER_CLUSTER="${_PUSHER_CLUSTER}" \
+          --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" \
+          -t asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:$COMMIT_SHA \
+          -t asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:latest \
+          .
+
+  # 2. Push both tags to Artifact Registry.
+  - id: push-sha
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:$COMMIT_SHA
+    waitFor: [build]
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:latest
+    waitFor: [build]
+
+  # 3. Deploy to Cloud Run. Non-secret env vars go through --set-env-vars;
+  #    every credential is mounted from Secret Manager via --set-secrets so
+  #    nothing sensitive lands in service config or audit logs.
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - taxidi
+      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:$COMMIT_SHA
+      - --region=asia-southeast1
+      - --platform=managed
+      - --allow-unauthenticated
+      - --service-account=taxidi-run@$PROJECT_ID.iam.gserviceaccount.com
+      - --add-cloudsql-instances=$PROJECT_ID:asia-southeast1:taxidi-db
+      - --set-env-vars=INSTANCE_CONNECTION_NAME=$PROJECT_ID:asia-southeast1:taxidi-db,DB_NAME=taxidi,DB_USER=taxidi_app,PUSHER_CLUSTER=${_PUSHER_CLUSTER},NEXT_PUBLIC_PUSHER_CLUSTER=${_PUSHER_CLUSTER}
+      # Secret versions are PINNED (`:1`, not `:latest`) so each Cloud Run
+      # revision is reproducible and the audit trail captures which secret
+      # version a given image ran with. When you rotate a secret, bump the
+      # number here in a new commit and redeploy intentionally.
+      - --set-secrets=DB_PASSWORD=taxidi-db-password:1,CLERK_SECRET_KEY=clerk-secret-key:1,CLERK_WEBHOOK_SECRET=clerk-webhook-secret:1,OPENAI_API_KEY=openai-api-key:1,GOOGLE_GENERATIVE_AI_API_KEY=google-genai-key:1,PUSHER_APP_ID=pusher-app-id:1,PUSHER_KEY=pusher-key:1,PUSHER_SECRET=pusher-secret:1,GOOGLE_MAPS_API_KEY=google-maps-api-key:1
+      - --min-instances=1
+      - --max-instances=10
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=80
+      - --timeout=300s
+    waitFor: [push-sha]
+
+# Keep both tags in the build's stored image list for easy rollback / inspection.
+images:
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:$COMMIT_SHA
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:latest
+
+# Public NEXT_PUBLIC_* values are technically embedded in the client bundle
+# anyway, but pulling them from Secret Manager keeps cloudbuild.yaml history
+# clean and avoids leaking them in the trigger UI / build logs.
+availableSecrets:
+  secretManager:
+    # Build-time secrets are pinned just like runtime ones — see the
+    # `--set-secrets=...:1` comment above for rotation guidance.
+    - versionName: projects/$PROJECT_ID/secrets/clerk-publishable-key/versions/1
+      env: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+    - versionName: projects/$PROJECT_ID/secrets/pusher-key/versions/1
+      env: NEXT_PUBLIC_PUSHER_KEY
+    - versionName: projects/$PROJECT_ID/secrets/google-maps-publishable-key/versions/1
+      env: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+
+# Defaults can be overridden in the trigger UI per environment.
+substitutions:
+  _PUSHER_CLUSTER: ap1
+  _NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ""
+  _NEXT_PUBLIC_PUSHER_KEY: ""
+  _NEXT_PUBLIC_PUSHER_CLUSTER: ap1
+  _NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ""
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# Cloud Build's built-in timeout (default 10m) is fine for our image size,
+# but bump it for safety in case of cold pnpm-store or registry latency.
+timeout: 1200s

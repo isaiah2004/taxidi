@@ -1,0 +1,55 @@
+# Dependencies — installed inside the container.
+node_modules
+.pnpm-store
+
+# Next.js build output — produced inside the builder stage.
+.next
+out
+
+# VCS / editor.
+.git
+.gitignore
+.vscode
+.idea
+
+# Local env files. Cloud Run injects production env at runtime via
+# --set-env-vars / --set-secrets; never bake secrets into the image.
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# Tests, coverage, fixtures — not needed at runtime.
+tests
+__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.ts
+vitest.config.mts
+coverage
+
+# Docs & infra config — copying these would needlessly bust the build cache.
+README.md
+*.md
+Dockerfile
+.dockerignore
+cloudbuild.yaml
+
+# OS / log noise.
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# NOTE: db/migrations is intentionally NOT excluded — the running app needs the
+# migration SQL files available so we can apply them on boot if/when we add
+# that step.

@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# test / debug screenshots (e.g. captured from Chrome DevTools MCP runs)
+/dashboard-signed-in.png
+/*.png
