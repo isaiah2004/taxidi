@@ -14,7 +14,9 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar"
-import { MapIcon, UsersIcon, PlaneIcon } from "lucide-react"
+import { MapIcon, PlaneIcon } from "lucide-react"
+import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs"
+import { Button } from "@/components/ui/button"
 
 
 
@@ -30,7 +32,7 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 export function AppSidebar({ myTrips, sharedTrips, onCreateTrip, onSelectTrip, currentTripId, ...props }: AppSidebarProps) {
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar variant="inset" collapsible="offcanvas" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -88,7 +90,32 @@ export function AppSidebar({ myTrips, sharedTrips, onCreateTrip, onSelectTrip, c
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        {/* We can place the UserButton from Clerk here later */}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <Show when="signed-in">
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <UserButton
+                  appearance={{ elements: { userButtonAvatarBox: "size-7" } }}
+                />
+                <span className="text-sm text-muted-foreground">Account</span>
+              </div>
+            </Show>
+            <Show when="signed-out">
+              <div className="flex flex-col gap-2 px-2 py-1.5">
+                <SignInButton mode="modal">
+                  <Button variant="outline" size="sm" className="w-full">
+                    Sign in
+                  </Button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <Button size="sm" className="w-full">
+                    Sign up
+                  </Button>
+                </SignUpButton>
+              </div>
+            </Show>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   )

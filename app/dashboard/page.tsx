@@ -60,6 +60,7 @@ export default function Page() {
       style={
         {
           "--sidebar-width": "19rem",
+          "--header-height": "60px",
         } as React.CSSProperties
       }
     >
@@ -73,19 +74,8 @@ export default function Page() {
       <SidebarInset>
         <SiteHeader currentTripTitle={currentTrip?.title || "Trip Board"} />
         <div className="flex flex-1 overflow-hidden">
-          {/* Main Area: Trip Canvas */}
-          <main className="flex-1 flex flex-col items-center justify-center bg-muted/20 relative">
-            <div className="text-center p-8">
-              <h2 className="text-2xl font-semibold mb-2">Trip Canvas</h2>
-              <p className="text-muted-foreground text-sm">Plan your trip collaboratively here.</p>
-            </div>
-            {/* Tree breakdown visualization placeholder */}
-            <div className="w-64 h-64 border-2 border-dashed border-muted-foreground/30 rounded-lg flex items-center justify-center opacity-50">
-              [Canvas Placeholder]
-            </div>
-          </main>
-          
-          {/* Right Panel: Chat Window */}
+          <main className="flex-1 bg-muted/20" />
+
           <aside className="w-80 border-l bg-background flex flex-col">
             <div className="p-4 border-b font-medium">Trip Chat</div>
             <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4">
