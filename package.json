@@ -47,6 +47,16 @@
     "vaul": "^1.1.2",
     "zod": "^4.4.3"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@clerk/shared",
+      "esbuild",
+      "msw",
+      "protobufjs",
+      "sharp",
+      "unrs-resolver"
+    ]
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",

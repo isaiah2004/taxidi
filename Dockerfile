@@ -11,17 +11,17 @@ FROM node:${NODE_VERSION} AS deps
 WORKDIR /app
 
 # pnpm via corepack (bundled with Node 24). Pin to whatever the lockfile uses.
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Alpine needs libc6-compat for some Node native modules (sharp, etc.).
 RUN apk add --no-cache libc6-compat
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-# Mounted pnpm store cache; survives across builds when BuildKit cache is available.
-RUN --mount=type=cache,target=/root/.pnpm-store \
-    pnpm config set store-dir /root/.pnpm-store && \
-    pnpm install --frozen-lockfile
+# Note: BuildKit cache mounts removed for compatibility with Cloud Build's
+# default Docker daemon. With BuildKit available locally we'd add
+# `--mount=type=cache,target=/root/.pnpm-store` to speed re-builds.
+RUN pnpm install --frozen-lockfile
 
 # ---------- Stage 2: builder ----------
 # Compile the app with `pnpm build`. NEXT_PUBLIC_* must be present here so they
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.pnpm-store \
 FROM node:${NODE_VERSION} AS builder
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Build-time public env. Cloud Build passes these via --build-arg from
 # substitutions / Secret Manager (see cloudbuild.yaml).

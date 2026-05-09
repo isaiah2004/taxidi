@@ -1,0 +1,37 @@
+# Build the Taxidi Docker image, baking required NEXT_PUBLIC_* into the bundle.
+# Used for test deploys where DISABLE_AUTH=true at runtime; Clerk's publishable
+# key still has to be present at build time because ClerkProvider reads it
+# from the client bundle.
+
+substitutions:
+  _IMAGE_TAG: v5
+  _CLERK_PUBLISHABLE_KEY: pk_test_ZnJhbmstbW9uaXRvci03OC5jbGVyay5hY2NvdW50cy5kZXYk
+  _GOOGLE_MAPS_KEY: AIzaSyDCcNtrIA1pky6_hERJn9zN3qqwBmotusA
+  _PUSHER_KEY: ""
+  _PUSHER_CLUSTER: ap1
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${_CLERK_PUBLISHABLE_KEY}
+      - --build-arg=NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${_GOOGLE_MAPS_KEY}
+      - --build-arg=NEXT_PUBLIC_PUSHER_KEY=${_PUSHER_KEY}
+      - --build-arg=NEXT_PUBLIC_PUSHER_CLUSTER=${_PUSHER_CLUSTER}
+      - -t
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:${_IMAGE_TAG}
+      - .
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:${_IMAGE_TAG}
+    waitFor: [build]
+
+images:
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/taxidi/web:${_IMAGE_TAG}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

@@ -1,0 +1,31 @@
+# One-shot Cloud Build job: run db/migrations/0000_init.sql against Cloud SQL.
+# Uses gcr.io/google.com/cloudsdktool/cloud-sdk + cloud-sql-proxy v2 in BG, psql
+# from the same image, and the postgres password from Secret Manager.
+steps:
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    secretEnv:
+      - PGPASSWORD
+    args:
+      - -c
+      - |
+        set -e
+        apt-get update -qq && apt-get install -y -qq postgresql-client wget
+        wget -q https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.linux.amd64 -O /usr/local/bin/cloud-sql-proxy
+        chmod +x /usr/local/bin/cloud-sql-proxy
+        cloud-sql-proxy --port 5432 stoasocial:asia-southeast1:taxidi-db &
+        PROXY_PID=$!
+        sleep 5
+        psql -h 127.0.0.1 -p 5432 -U postgres -d taxidi -v ON_ERROR_STOP=1 -f db/migrations/0000_init.sql
+        psql -h 127.0.0.1 -p 5432 -U postgres -d taxidi -c "GRANT ALL ON SCHEMA public TO taxidi_app; GRANT ALL ON ALL TABLES IN SCHEMA public TO taxidi_app; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO taxidi_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO taxidi_app; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO taxidi_app;"
+        kill $$PROXY_PID || true
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/stoasocial/secrets/taxidi-db-postgres-password/versions/1
+      env: PGPASSWORD
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 600s
